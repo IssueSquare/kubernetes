@@ -35,23 +35,28 @@ import (
 var (
 	defaultPort = 8001
 	proxyLong   = templates.LongDesc(i18n.T(`
-		To proxy all of the kubernetes api and nothing else, use:
+		Creates a proxy server or application-level gateway between localhost and 
+		the Kubernetes API Server. It also allows serving static content over specified 
+		HTTP path. All incoming data enters through one port and gets forwarded to 
+		the remote kubernetes API Server port, except for the path matching the static content path.`))
+
+	proxyExample = templates.Examples(i18n.T(`
+		# To proxy all of the kubernetes api and nothing else, use:
 
 		    $ kubectl proxy --api-prefix=/
 
-		To proxy only part of the kubernetes api and also some static files:
+		# To proxy only part of the kubernetes api and also some static files:
 
 		    $ kubectl proxy --www=/my/files --www-prefix=/static/ --api-prefix=/api/
 
-		The above lets you 'curl localhost:8001/api/v1/pods'.
+		# The above lets you 'curl localhost:8001/api/v1/pods'.
 
-		To proxy the entire kubernetes api at a different root, use:
+		# To proxy the entire kubernetes api at a different root, use:
 
 		    $ kubectl proxy --api-prefix=/custom/
 
-		The above lets you 'curl localhost:8001/custom/api/v1/pods'`))
+		# The above lets you 'curl localhost:8001/custom/api/v1/pods'
 
-	proxyExample = templates.Examples(i18n.T(`
 		# Run a proxy to kubernetes apiserver on port 8011, serving static content from ./local/www/
 		kubectl proxy --port=8011 --www=./local/www/
 
@@ -81,7 +86,7 @@ func NewCmdProxy(f cmdutil.Factory, out io.Writer) *cobra.Command {
 	cmd.Flags().String("accept-paths", kubectl.DefaultPathAcceptRE, "Regular expression for paths that the proxy should accept.")
 	cmd.Flags().String("reject-paths", kubectl.DefaultPathRejectRE, "Regular expression for paths that the proxy should reject. Paths specified here will be rejected even accepted by --accept-paths.")
 	cmd.Flags().String("accept-hosts", kubectl.DefaultHostAcceptRE, "Regular expression for hosts that the proxy should accept.")
-	cmd.Flags().String("reject-methods", kubectl.DefaultMethodRejectRE, "Regular expression for HTTP methods that the proxy should reject.")
+	cmd.Flags().String("reject-methods", kubectl.DefaultMethodRejectRE, "Regular expression for HTTP methods that the proxy should reject (example --reject-methods='POST,PUT,PATCH'). ")
 	cmd.Flags().IntP("port", "p", defaultPort, "The port on which to run the proxy. Set to 0 to pick a random port.")
 	cmd.Flags().StringP("address", "", "127.0.0.1", "The IP address on which to serve on.")
 	cmd.Flags().Bool("disable-filter", false, "If true, disable request filtering in the proxy. This is dangerous, and can leave you vulnerable to XSRF attacks, when used with an accessible port.")
@@ -122,9 +127,10 @@ func RunProxy(f cmdutil.Factory, out io.Writer, cmd *cobra.Command) error {
 		apiProxyPrefix += "/"
 	}
 	filter := &kubectl.FilterServer{
-		AcceptPaths: kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "accept-paths")),
-		RejectPaths: kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "reject-paths")),
-		AcceptHosts: kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "accept-hosts")),
+		AcceptPaths:   kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "accept-paths")),
+		RejectPaths:   kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "reject-paths")),
+		AcceptHosts:   kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "accept-hosts")),
+		RejectMethods: kubectl.MakeRegexpArrayOrDie(cmdutil.GetFlagString(cmd, "reject-methods")),
 	}
 	if cmdutil.GetFlagBool(cmd, "disable-filter") {
 		if path == "" {

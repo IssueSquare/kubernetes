@@ -1,6 +1,6 @@
 package(default_visibility = ["//visibility:public"])
 
-load("@bazel_tools//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
+load("@io_bazel//tools/build_defs/pkg:pkg.bzl", "pkg_tar")
 load("@io_kubernetes_build//defs:build.bzl", "release_filegroup")
 
 pkg_tar(
@@ -32,7 +32,10 @@ filegroup(
 
 filegroup(
     name = "all-srcs",
-    srcs = [":package-srcs"],
+    srcs = [
+        ":package-srcs",
+        "//cluster/gce/gci/nvidia-gpus:all-srcs",
+    ],
     tags = ["automanaged"],
 )
 

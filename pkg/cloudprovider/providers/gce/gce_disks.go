@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/cloudprovider"
+	kubeletapis "k8s.io/kubernetes/pkg/kubelet/apis"
 	"k8s.io/kubernetes/pkg/volume"
 
 	"github.com/golang/glog"
@@ -244,12 +244,15 @@ func (gce *GCECloud) CreateDisk(
 	}
 
 	mc := newDiskMetricContext("create", zone)
-	createOp, err := gce.service.Disks.Insert(gce.projectID, zone, diskToCreate).Do()
-	if err != nil {
+	createOp, err := gce.manager.CreateDisk(gce.projectID, zone, diskToCreate)
+	if isGCEError(err, "alreadyExists") {
+		glog.Warningf("GCE PD %q already exists, reusing", name)
+		return nil
+	} else if err != nil {
 		return mc.Observe(err)
 	}
 
-	err = gce.waitForZoneOp(createOp, zone, mc)
+	err = gce.manager.WaitForZoneOp(createOp, zone, mc)
 	if isGCEError(err, "alreadyExists") {
 		glog.Warningf("GCE PD %q already exists, reusing", name)
 		return nil
@@ -310,8 +313,8 @@ func (gce *GCECloud) GetAutoLabelsForPD(name string, zone string) (map[string]st
 	}
 
 	labels := make(map[string]string)
-	labels[metav1.LabelZoneFailureDomain] = zone
-	labels[metav1.LabelZoneRegion] = region
+	labels[kubeletapis.LabelZoneFailureDomain] = zone
+	labels[kubeletapis.LabelZoneRegion] = region
 
 	return labels, nil
 }
@@ -319,7 +322,8 @@ func (gce *GCECloud) GetAutoLabelsForPD(name string, zone string) (map[string]st
 // Returns a GCEDisk for the disk, if it is found in the specified zone.
 // If not found, returns (nil, nil)
 func (gce *GCECloud) findDiskByName(diskName string, zone string) (*GCEDisk, error) {
-	disk, err := gce.service.Disks.Get(gce.projectID, zone, diskName).Do()
+	mc := newDiskMetricContext("get", zone)
+	disk, err := gce.manager.GetDisk(gce.projectID, zone, diskName)
 	if err == nil {
 		d := &GCEDisk{
 			Zone: lastComponent(disk.Zone),
@@ -327,12 +331,12 @@ func (gce *GCECloud) findDiskByName(diskName string, zone string) (*GCEDisk, err
 			Kind: disk.Kind,
 			Type: disk.Type,
 		}
-		return d, nil
+		return d, mc.Observe(nil)
 	}
 	if !isHTTPErrorCode(err, http.StatusNotFound) {
-		return nil, err
+		return nil, mc.Observe(err)
 	}
-	return nil, nil
+	return nil, mc.Observe(nil)
 }
 
 // Like findDiskByName, but returns an error if the disk is not found
@@ -406,12 +410,12 @@ func (gce *GCECloud) doDeleteDisk(diskToDelete string) error {
 
 	mc := newDiskMetricContext("delete", disk.Zone)
 
-	deleteOp, err := gce.service.Disks.Delete(gce.projectID, disk.Zone, disk.Name).Do()
+	deleteOp, err := gce.manager.DeleteDisk(gce.projectID, disk.Zone, disk.Name)
 	if err != nil {
 		return mc.Observe(err)
 	}
 
-	return gce.waitForZoneOp(deleteOp, disk.Zone, mc)
+	return gce.manager.WaitForZoneOp(deleteOp, disk.Zone, mc)
 }
 
 // Converts a Disk resource to an AttachedDisk resource.

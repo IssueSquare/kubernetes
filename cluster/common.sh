@@ -30,15 +30,15 @@ source "${KUBE_ROOT}/cluster/lib/logging.sh"
 #
 # NOTE This must match the version_regex in build/common.sh
 # kube::release::parse_and_validate_release_version()
-KUBE_RELEASE_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-(beta|alpha|rc)\\.(0|[1-9][0-9]*))?$"
-KUBE_RELEASE_VERSION_DASHED_REGEX="v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)(-(beta|alpha|rc)-(0|[1-9][0-9]*))?"
+KUBE_RELEASE_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-([a-zA-Z0-9]+)\\.(0|[1-9][0-9]*))?$"
+KUBE_RELEASE_VERSION_DASHED_REGEX="v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)(-([a-zA-Z0-9]+)-(0|[1-9][0-9]*))?"
 
 # KUBE_CI_VERSION_REGEX matches things like "v1.2.3-alpha.4.56+abcdefg" This
 #
 # NOTE This must match the version_regex in build/common.sh
 # kube::release::parse_and_validate_ci_version()
-KUBE_CI_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-(beta|alpha|rc)\\.(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)\\+[-0-9a-z]*)?$"
-KUBE_CI_VERSION_DASHED_REGEX="^v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(beta|alpha|rc)-(0|[1-9][0-9]*)(-(0|[1-9][0-9]*)\\+[-0-9a-z]*)?"
+KUBE_CI_VERSION_REGEX="^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-([a-zA-Z0-9]+)\\.(0|[1-9][0-9]*)(\\.(0|[1-9][0-9]*)\\+[-0-9a-z]*)?$"
+KUBE_CI_VERSION_DASHED_REGEX="^v(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-(0|[1-9][0-9]*)-([a-zA-Z0-9]+)-(0|[1-9][0-9]*)(-(0|[1-9][0-9]*)\\+[-0-9a-z]*)?"
 
 # Generate kubeconfig data for the created cluster.
 # Assumed vars:
@@ -619,6 +619,8 @@ ENABLE_L7_LOADBALANCING: $(yaml-quote ${ENABLE_L7_LOADBALANCING:-none})
 ENABLE_CLUSTER_LOGGING: $(yaml-quote ${ENABLE_CLUSTER_LOGGING:-false})
 ENABLE_CLUSTER_UI: $(yaml-quote ${ENABLE_CLUSTER_UI:-false})
 ENABLE_NODE_PROBLEM_DETECTOR: $(yaml-quote ${ENABLE_NODE_PROBLEM_DETECTOR:-none})
+NODE_PROBLEM_DETECTOR_VERSION: $(yaml-quote ${NODE_PROBLEM_DETECTOR_VERSION:-})
+NODE_PROBLEM_DETECTOR_TAR_HASH: $(yaml-quote ${NODE_PROBLEM_DETECTOR_TAR_HASH:-})
 ENABLE_NODE_LOGGING: $(yaml-quote ${ENABLE_NODE_LOGGING:-false})
 ENABLE_RESCHEDULER: $(yaml-quote ${ENABLE_RESCHEDULER:-false})
 LOGGING_DESTINATION: $(yaml-quote ${LOGGING_DESTINATION:-})
@@ -656,7 +658,9 @@ NON_MASQUERADE_CIDR: $(yaml-quote ${NON_MASQUERADE_CIDR:-})
 KUBE_UID: $(yaml-quote ${KUBE_UID:-})
 ENABLE_DEFAULT_STORAGE_CLASS: $(yaml-quote ${ENABLE_DEFAULT_STORAGE_CLASS:-})
 ENABLE_APISERVER_BASIC_AUDIT: $(yaml-quote ${ENABLE_APISERVER_BASIC_AUDIT:-})
+ENABLE_APISERVER_ADVANCED_AUDIT: $(yaml-quote ${ENABLE_APISERVER_ADVANCED_AUDIT:-})
 ENABLE_CACHE_MUTATION_DETECTOR: $(yaml-quote ${ENABLE_CACHE_MUTATION_DETECTOR:-false})
+ADVANCED_AUDIT_BACKEND: $(yaml-quote ${ADVANCED_AUDIT_BACKEND:-log})
 EOF
   if [ -n "${KUBELET_PORT:-}" ]; then
     cat >>$file <<EOF

@@ -39,6 +39,7 @@ from charms.reactive import is_state
 from charms.reactive import when, when_any, when_not
 from charms.reactive.helpers import data_changed
 from charms.kubernetes.common import get_version
+from charms.kubernetes.common import retry
 from charms.kubernetes.flagmanager import FlagManager
 
 from charmhelpers.core import hookenv
@@ -235,11 +236,10 @@ def setup_non_leader_authentication():
         # the keys were not retrieved. Non-leaders have to retry.
         return
 
-    api_opts.add('--basic-auth-file', basic_auth)
-    api_opts.add('--token-auth-file', known_tokens)
-    api_opts.add('--service-cluster-ip-range', service_cidr())
-    api_opts.add('--service-account-key-file', service_key)
-    controller_opts.add('--service-account-private-key-file', service_key)
+    api_opts.add('basic-auth-file', basic_auth)
+    api_opts.add('token-auth-file', known_tokens)
+    api_opts.add('service-account-key-file', service_key)
+    controller_opts.add('service-account-private-key-file', service_key)
 
     set_state('authentication.setup')
 
@@ -274,12 +274,6 @@ def get_keys_from_leader(keys):
             with open(k, 'w+') as fp:
                 fp.write(contents)
 
-    api_opts.add('basic-auth-file', basic_auth)
-    api_opts.add('token-auth-file', known_tokens)
-    api_opts.add('service-account-key-file', service_key)
-    controller_opts.add('service-account-private-key-file', service_key)
-
-    set_state('authentication.setup')
     return True
 
 
@@ -290,7 +284,8 @@ def set_app_version():
     hookenv.application_version_set(version.split(b' v')[-1].rstrip())
 
 
-@when('cdk-addons.configured')
+@when('cdk-addons.configured', 'kube-api-endpoint.connected',
+      'kube-control.connected')
 def idle_status():
     ''' Signal at the end of the run that we are running. '''
     if not all_kube_system_pods_running():
@@ -414,6 +409,7 @@ def push_api_data(kube_api):
 @when('kubernetes-master.components.started')
 def configure_cdk_addons():
     ''' Configure CDK addons '''
+    remove_state('cdk-addons.configured')
     dbEnabled = str(hookenv.config('enable-dashboard-addons')).lower()
     args = [
         'arch=' + arch(),
@@ -422,13 +418,28 @@ def configure_cdk_addons():
         'enable-dashboard=' + dbEnabled
     ]
     check_call(['snap', 'set', 'cdk-addons'] + args)
-    try:
-        check_call(['cdk-addons.apply'])
-    except CalledProcessError:
+    if not addons_ready():
         hookenv.status_set('waiting', 'Waiting to retry addon deployment')
         remove_state('cdk-addons.configured')
         return
+
     set_state('cdk-addons.configured')
+
+
+@retry(times=3, delay_secs=20)
+def addons_ready():
+    """
+    Test if the add ons got installed
+
+    Returns: True is the addons got applied
+
+    """
+    try:
+        check_call(['cdk-addons.apply'])
+        return True
+    except CalledProcessError:
+        hookenv.log("Addons are not ready yet.")
+        return False
 
 
 @when('loadbalancer.available', 'certificates.ca.available',
@@ -781,6 +792,7 @@ def configure_master_services():
     api_opts.add('insecure-port', '8080')
     api_opts.add('storage-backend', 'etcd2')  # FIXME: add etcd3 support
     admission_control = [
+        'Initializers',
         'NamespaceLifecycle',
         'LimitRanger',
         'ServiceAccount',
@@ -791,6 +803,9 @@ def configure_master_services():
     if get_version('kube-apiserver') < (1, 6):
         hookenv.log('Removing DefaultTolerationSeconds from admission-control')
         admission_control.remove('DefaultTolerationSeconds')
+    if get_version('kube-apiserver') < (1, 7):
+        hookenv.log('Removing Initializers from admission-control')
+        admission_control.remove('Initializers')
     api_opts.add('admission-control', ','.join(admission_control), strict=True)
 
     # Default to 3 minute resync. TODO: Make this configureable?
@@ -838,6 +853,7 @@ def setup_tokens(token, username, user):
         stream.write('{0},{1},{2}\n'.format(token, username, user))
 
 
+@retry(times=3, delay_secs=10)
 def all_kube_system_pods_running():
     ''' Check pod status in the kube-system namespace. Returns True if all
     pods are running, False otherwise. '''

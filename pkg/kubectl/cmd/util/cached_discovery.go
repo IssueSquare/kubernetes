@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/emicklei/go-restful/swagger"
+	"github.com/emicklei/go-restful-swagger12"
 	"github.com/go-openapi/spec"
 	"github.com/golang/glog"
 
@@ -196,7 +196,7 @@ func (d *CachedDiscoveryClient) writeCachedFile(filename string, obj runtime.Obj
 		return err
 	}
 
-	err = f.Chmod(0755)
+	err = os.Chmod(f.Name(), 0755)
 	if err != nil {
 		return err
 	}
