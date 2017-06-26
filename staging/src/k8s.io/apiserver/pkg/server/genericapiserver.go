@@ -150,6 +150,10 @@ type GenericAPIServer struct {
 
 	// auditing. The backend is started after the server starts listening.
 	AuditBackend audit.Backend
+
+	// enableAPIResponseCompression indicates whether API Responses should support compression
+	// if the client requests it via Accept-Encoding
+	enableAPIResponseCompression bool
 }
 
 // DelegationTarget is an interface which allows for composition of API servers with top level handling that works
@@ -387,14 +391,14 @@ func (s *GenericAPIServer) InstallAPIGroup(apiGroupInfo *APIGroupInfo) error {
 			Version:      groupVersion.Version,
 		})
 	}
-	preferedVersionForDiscovery := metav1.GroupVersionForDiscovery{
+	preferredVersionForDiscovery := metav1.GroupVersionForDiscovery{
 		GroupVersion: apiGroupInfo.GroupMeta.GroupVersion.String(),
 		Version:      apiGroupInfo.GroupMeta.GroupVersion.Version,
 	}
 	apiGroup := metav1.APIGroup{
 		Name:             apiGroupInfo.GroupMeta.GroupVersion.Group,
 		Versions:         apiVersionsForDiscovery,
-		PreferredVersion: preferedVersionForDiscovery,
+		PreferredVersion: preferredVersionForDiscovery,
 	}
 
 	s.DiscoveryGroupManager.AddGroup(apiGroup)
@@ -431,9 +435,10 @@ func (s *GenericAPIServer) newAPIGroupVersion(apiGroupInfo *APIGroupInfo, groupV
 		Linker: apiGroupInfo.GroupMeta.SelfLinker,
 		Mapper: apiGroupInfo.GroupMeta.RESTMapper,
 
-		Admit:             s.admissionControl,
-		Context:           s.RequestContextMapper(),
-		MinRequestTimeout: s.minRequestTimeout,
+		Admit:                        s.admissionControl,
+		Context:                      s.RequestContextMapper(),
+		MinRequestTimeout:            s.minRequestTimeout,
+		EnableAPIResponseCompression: s.enableAPIResponseCompression,
 	}
 }
 

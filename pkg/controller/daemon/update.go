@@ -23,6 +23,9 @@ import (
 
 	"github.com/golang/glog"
 
+	apps "k8s.io/api/apps/v1beta1"
+	"k8s.io/api/core/v1"
+	extensions "k8s.io/api/extensions/v1beta1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -30,10 +33,7 @@ import (
 	intstrutil "k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
 	podutil "k8s.io/kubernetes/pkg/api/v1/pod"
-	apps "k8s.io/kubernetes/pkg/apis/apps/v1beta1"
-	extensions "k8s.io/kubernetes/pkg/apis/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/daemon/util"
 	labelsutil "k8s.io/kubernetes/pkg/util/labels"
@@ -79,6 +79,9 @@ func (dsc *DaemonSetsController) rollingUpdate(ds *extensions.DaemonSet, hash st
 	return dsc.syncNodes(ds, oldPodsToDelete, []string{}, hash)
 }
 
+// constructHistory finds all histories controlled by the given DaemonSet, and
+// update current history revision number, or create current history if need to.
+// It also deduplicates current history, and adds missing unique labels to existing histories.
 func (dsc *DaemonSetsController) constructHistory(ds *extensions.DaemonSet) (cur *apps.ControllerRevision, old []*apps.ControllerRevision, err error) {
 	var histories []*apps.ControllerRevision
 	var currentHistories []*apps.ControllerRevision
@@ -143,31 +146,13 @@ func (dsc *DaemonSetsController) constructHistory(ds *extensions.DaemonSet) (cur
 			}
 		}
 	}
-	// Label ds with current history's unique label as well
-	if ds.Labels[extensions.DefaultDaemonSetUniqueLabelKey] != cur.Labels[extensions.DefaultDaemonSetUniqueLabelKey] {
-		var clone interface{}
-		clone, err = api.Scheme.DeepCopy(ds)
-		if err != nil {
-			return nil, nil, err
-		}
-		toUpdate := clone.(*extensions.DaemonSet)
-		if toUpdate.Labels == nil {
-			toUpdate.Labels = make(map[string]string)
-		}
-		toUpdate.Labels[extensions.DefaultDaemonSetUniqueLabelKey] = cur.Labels[extensions.DefaultDaemonSetUniqueLabelKey]
-		_, err = dsc.kubeClient.ExtensionsV1beta1().DaemonSets(ds.Namespace).UpdateStatus(toUpdate)
-	}
 	return cur, old, err
 }
 
-func (dsc *DaemonSetsController) cleanupHistory(ds *extensions.DaemonSet) error {
+func (dsc *DaemonSetsController) cleanupHistory(ds *extensions.DaemonSet, old []*apps.ControllerRevision) error {
 	nodesToDaemonPods, err := dsc.getNodesToDaemonPods(ds)
 	if err != nil {
 		return fmt.Errorf("couldn't get node to daemon pod mapping for daemon set %q: %v", ds.Name, err)
-	}
-	_, old, err := dsc.constructHistory(ds)
-	if err != nil {
-		return fmt.Errorf("failed to construct revisions of DaemonSet: %v", err)
 	}
 
 	toKeep := int(*ds.Spec.RevisionHistoryLimit)
@@ -272,27 +257,37 @@ func (dsc *DaemonSetsController) dedupCurHistories(ds *extensions.DaemonSet, cur
 	return keepCur, nil
 }
 
-// controlledHistories returns all ControllerRevisions controlled by the given DaemonSet
+// controlledHistories returns all ControllerRevisions controlled by the given DaemonSet.
+// This also reconciles ControllerRef by adopting/orphaning.
 // Note that returned histories are pointers to objects in the cache.
 // If you want to modify one, you need to deep-copy it first.
 func (dsc *DaemonSetsController) controlledHistories(ds *extensions.DaemonSet) ([]*apps.ControllerRevision, error) {
-	var result []*apps.ControllerRevision
 	selector, err := metav1.LabelSelectorAsSelector(ds.Spec.Selector)
 	if err != nil {
 		return nil, err
 	}
-	histories, err := dsc.historyLister.List(selector)
+
+	// List all histories to include those that don't match the selector anymore
+	// but have a ControllerRef pointing to the controller.
+	histories, err := dsc.historyLister.List(labels.Everything())
 	if err != nil {
 		return nil, err
 	}
-	for _, history := range histories {
-		// Skip history that doesn't belong to the DaemonSet
-		if controllerRef := controller.GetControllerOf(history); controllerRef == nil || controllerRef.UID != ds.UID {
-			continue
+	// If any adoptions are attempted, we should first recheck for deletion with
+	// an uncached quorum read sometime after listing Pods (see #42639).
+	canAdoptFunc := controller.RecheckDeletionTimestamp(func() (metav1.Object, error) {
+		fresh, err := dsc.kubeClient.ExtensionsV1beta1().DaemonSets(ds.Namespace).Get(ds.Name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
 		}
-		result = append(result, history)
-	}
-	return result, nil
+		if fresh.UID != ds.UID {
+			return nil, fmt.Errorf("original DaemonSet %v/%v is gone: got uid %v, wanted %v", ds.Namespace, ds.Name, fresh.UID, ds.UID)
+		}
+		return fresh, nil
+	})
+	// Use ControllerRefManager to adopt/orphan as needed.
+	cm := controller.NewControllerRevisionControllerRefManager(dsc.crControl, ds, selector, controllerKind, canAdoptFunc)
+	return cm.ClaimControllerRevisions(histories)
 }
 
 // Match check if the given DaemonSet's template matches the template stored in the given history.

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -27,7 +28,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
-	"k8s.io/kubernetes/pkg/api/v1"
 	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/test/e2e/common"
@@ -371,7 +371,7 @@ func createBackendPodsOrFail(clusters fedframework.ClusterSlice, namespace strin
 			Containers: []v1.Container{
 				{
 					Name:  name,
-					Image: "gcr.io/google_containers/echoserver:1.4",
+					Image: "gcr.io/google_containers/echoserver:1.6",
 				},
 			},
 			RestartPolicy: v1.RestartPolicyAlways,

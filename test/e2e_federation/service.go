@@ -24,12 +24,12 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fedframework "k8s.io/kubernetes/test/e2e_federation/framework"
 
@@ -379,13 +379,10 @@ func deleteServiceShard(c *fedframework.Cluster, namespace, service string) erro
 
 // equivalent returns true if the two services are equivalent.  Fields which are expected to differ between
 // federated services and the underlying cluster services (e.g. ClusterIP, NodePort) are ignored.
-func equivalent(clusterService, federationService v1.Service) bool {
-	federationService.Spec.ClusterIP = clusterService.Spec.ClusterIP
-	for i := range federationService.Spec.Ports {
-		federationService.Spec.Ports[i].NodePort = clusterService.Spec.Ports[i].NodePort
-	}
-	if federationService.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyType("") {
-		federationService.Spec.ExternalTrafficPolicy = clusterService.Spec.ExternalTrafficPolicy
+func equivalent(federationService, clusterService v1.Service) bool {
+	clusterService.Spec.ClusterIP = federationService.Spec.ClusterIP
+	for i := range clusterService.Spec.Ports {
+		clusterService.Spec.Ports[i].NodePort = federationService.Spec.Ports[i].NodePort
 	}
 
 	if federationService.Name != clusterService.Name || federationService.Namespace != clusterService.Namespace {

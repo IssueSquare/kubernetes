@@ -24,8 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/v1"
+	"k8s.io/api/core/v1"
 	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	containertest "k8s.io/kubernetes/pkg/kubelet/container/testing"
@@ -227,7 +226,7 @@ func TestGenerateContainerConfig(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, expectedConfig, containerConfig, "generate container config for kubelet runtime v1.")
 
-	runAsUser := types.UnixUserID(0)
+	runAsUser := int64(0)
 	runAsNonRootTrue := true
 	podWithContainerSecurityContext := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
