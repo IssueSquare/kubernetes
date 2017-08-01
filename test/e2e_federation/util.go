@@ -26,9 +26,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kubeclientset "k8s.io/client-go/kubernetes"
 	federationapi "k8s.io/kubernetes/federation/apis/federation/v1beta1"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
-	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/test/e2e/common"
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -248,7 +248,7 @@ func cleanupServiceShardsAndProviderResources(namespace string, service *v1.Serv
 			zone := fedframework.GetZoneFromClusterName(name)
 			serviceLBName := cloudprovider.GetLoadBalancerName(cSvc)
 			framework.Logf("cleaning cloud provider resource for service %q in namespace %q, in cluster %q", service.Name, namespace, name)
-			framework.CleanupServiceResources(serviceLBName, zone)
+			framework.CleanupServiceResources(c.Clientset, serviceLBName, zone)
 		}
 
 		err = cleanupServiceShard(c.Clientset, name, namespace, cSvc, fedframework.FederatedDefaultTestTimeout)
@@ -381,7 +381,7 @@ func createBackendPodsOrFail(clusters fedframework.ClusterSlice, namespace strin
 	for _, c := range clusters {
 		name := c.Name
 		By(fmt.Sprintf("Creating pod %q in namespace %q in cluster %q", pod.Name, namespace, name))
-		createdPod, err := c.Clientset.Core().Pods(namespace).Create(pod)
+		createdPod, err := c.Clientset.CoreV1().Pods(namespace).Create(pod)
 		framework.ExpectNoError(err, "Creating pod %q in namespace %q in cluster %q", name, namespace, name)
 		By(fmt.Sprintf("Successfully created pod %q in namespace %q in cluster %q: %v", pod.Name, namespace, name, *createdPod))
 		podMap[name] = createdPod
@@ -393,7 +393,7 @@ func createBackendPodsOrFail(clusters fedframework.ClusterSlice, namespace strin
 // The test fails if there are any errors.
 func deleteOneBackendPodOrFail(c *fedframework.Cluster, pod *v1.Pod) {
 	Expect(pod).ToNot(BeNil())
-	err := c.Clientset.Core().Pods(pod.Namespace).Delete(pod.Name, metav1.NewDeleteOptions(0))
+	err := c.Clientset.CoreV1().Pods(pod.Namespace).Delete(pod.Name, metav1.NewDeleteOptions(0))
 	msgFmt := fmt.Sprintf("Deleting Pod %q in namespace %q in cluster %q %%v", pod.Name, pod.Namespace, c.Name)
 	if errors.IsNotFound(err) {
 		framework.Logf(msgFmt, "does not exist. No need to delete it.")

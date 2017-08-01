@@ -39,8 +39,8 @@ import (
 	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/controller/daemon"
 	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
+	sliceutil "k8s.io/kubernetes/pkg/kubectl/util/slice"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
-	sliceutil "k8s.io/kubernetes/pkg/util/slice"
 )
 
 const (
@@ -57,7 +57,7 @@ func RollbackerFor(kind schema.GroupKind, c clientset.Interface) (Rollbacker, er
 	switch kind {
 	case extensions.Kind("Deployment"), apps.Kind("Deployment"):
 		return &DeploymentRollbacker{c}, nil
-	case extensions.Kind("DaemonSet"):
+	case extensions.Kind("DaemonSet"), apps.Kind("DaemonSet"):
 		return &DaemonSetRollbacker{c}, nil
 	}
 	return nil, fmt.Errorf("no rollbacker has been implemented for %q", kind)

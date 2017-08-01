@@ -332,8 +332,8 @@ func newVSphere(cfg VSphereConfig) (*VSphere, error) {
 	if cfg.Global.RoundTripperCount == 0 {
 		cfg.Global.RoundTripperCount = RoundTripperDefaultCount
 	}
-	if cfg.Global.VCenterPort != "" {
-		glog.Warningf("port is a deprecated field in vsphere.conf and will be removed in future release.")
+	if cfg.Global.VCenterPort == "" {
+		cfg.Global.VCenterPort = "443"
 	}
 
 	var c *govmomi.Client
@@ -382,7 +382,7 @@ func logout(vs *VSphere) {
 
 func newClient(ctx context.Context, cfg *VSphereConfig) (*govmomi.Client, error) {
 	// Parse URL from string
-	u, err := url.Parse(fmt.Sprintf("https://%s/sdk", cfg.Global.VCenterIP))
+	u, err := url.Parse(fmt.Sprintf("https://%s:%s/sdk", cfg.Global.VCenterIP, cfg.Global.VCenterPort))
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +580,8 @@ func (vs *VSphere) NodeAddresses(nodeName k8stypes.NodeName) ([]v1.NodeAddress, 
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
 func (vs *VSphere) NodeAddressesByProviderID(providerID string) ([]v1.NodeAddress, error) {
-	return []v1.NodeAddress{}, errors.New("unimplemented")
+	vmName := path.Base(providerID)
+	return vs.NodeAddresses(vmNameToNodeName(vmName))
 }
 
 func (vs *VSphere) AddSSHKeyToAllInstances(user string, keyData []byte) error {
@@ -663,7 +664,7 @@ func (vs *VSphere) InstanceID(nodeName k8stypes.NodeName) (string, error) {
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
 // and other local methods cannot be used here
 func (vs *VSphere) InstanceTypeByProviderID(providerID string) (string, error) {
-	return "", errors.New("unimplemented")
+	return "", nil
 }
 
 func (vs *VSphere) InstanceType(name k8stypes.NodeName) (string, error) {

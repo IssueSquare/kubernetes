@@ -25,12 +25,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	clientv1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 
 	"k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/cloudprovider/providers/gce"
 	nodeutil "k8s.io/kubernetes/pkg/util/node"
@@ -66,7 +65,7 @@ func NewCloudCIDRAllocator(
 		cloud:  gceCloud,
 		recorder: record.NewBroadcaster().NewRecorder(
 			api.Scheme,
-			clientv1.EventSource{Component: "cidrAllocator"}),
+			v1.EventSource{Component: "cidrAllocator"}),
 	}
 
 	glog.V(0).Infof("Using cloud CIDR allocator (provider: %v)", cloud.ProviderName())

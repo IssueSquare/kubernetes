@@ -27,7 +27,7 @@ import (
 	batchv2alpha1 "k8s.io/api/batch/v2alpha1"
 	apiv1 "k8s.io/api/core/v1"
 	extensionsv1beta1 "k8s.io/api/extensions/v1beta1"
-	apitesting "k8s.io/apimachinery/pkg/api/testing"
+	roundtrip "k8s.io/apimachinery/pkg/api/testing/roundtrip"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -82,6 +82,8 @@ func TestDefaulting(t *testing.T) {
 		{Group: "", Version: "v1", Kind: "ServiceList"}:                                           {},
 		{Group: "apps", Version: "v1beta1", Kind: "StatefulSet"}:                                  {},
 		{Group: "apps", Version: "v1beta1", Kind: "StatefulSetList"}:                              {},
+		{Group: "apps", Version: "v1beta2", Kind: "StatefulSet"}:                                  {},
+		{Group: "apps", Version: "v1beta2", Kind: "StatefulSetList"}:                              {},
 		{Group: "autoscaling", Version: "v1", Kind: "HorizontalPodAutoscaler"}:                    {},
 		{Group: "autoscaling", Version: "v1", Kind: "HorizontalPodAutoscalerList"}:                {},
 		{Group: "autoscaling", Version: "v2alpha1", Kind: "HorizontalPodAutoscaler"}:              {},
@@ -106,10 +108,16 @@ func TestDefaulting(t *testing.T) {
 		// {Group: "kubeadm.k8s.io", Version: "v1alpha1", Kind: "NodeConfiguration"}:                 {},
 		{Group: "extensions", Version: "v1beta1", Kind: "DaemonSet"}:                                                 {},
 		{Group: "extensions", Version: "v1beta1", Kind: "DaemonSetList"}:                                             {},
+		{Group: "apps", Version: "v1beta2", Kind: "DaemonSet"}:                                                       {},
+		{Group: "apps", Version: "v1beta2", Kind: "DaemonSetList"}:                                                   {},
 		{Group: "extensions", Version: "v1beta1", Kind: "Deployment"}:                                                {},
 		{Group: "extensions", Version: "v1beta1", Kind: "DeploymentList"}:                                            {},
 		{Group: "apps", Version: "v1beta1", Kind: "Deployment"}:                                                      {},
 		{Group: "apps", Version: "v1beta1", Kind: "DeploymentList"}:                                                  {},
+		{Group: "apps", Version: "v1beta2", Kind: "Deployment"}:                                                      {},
+		{Group: "apps", Version: "v1beta2", Kind: "DeploymentList"}:                                                  {},
+		{Group: "apps", Version: "v1beta2", Kind: "ReplicaSet"}:                                                      {},
+		{Group: "apps", Version: "v1beta2", Kind: "ReplicaSetList"}:                                                  {},
 		{Group: "extensions", Version: "v1beta1", Kind: "ReplicaSet"}:                                                {},
 		{Group: "extensions", Version: "v1beta1", Kind: "ReplicaSetList"}:                                            {},
 		{Group: "rbac.authorization.k8s.io", Version: "v1alpha1", Kind: "ClusterRoleBinding"}:                        {},
@@ -163,7 +171,7 @@ func TestDefaulting(t *testing.T) {
 		iter := 0
 		changedOnce := false
 		for {
-			if iter > *apitesting.FuzzIters {
+			if iter > *roundtrip.FuzzIters {
 				if !expectedChanged || changedOnce {
 					break
 				}

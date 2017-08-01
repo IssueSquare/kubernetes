@@ -78,6 +78,8 @@ type KubeProxyConntrackConfiguration struct {
 	TCPCloseWaitTimeout metav1.Duration
 }
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 // KubeProxyConfiguration contains everything necessary to configure the
 // Kubernetes proxy server.
 type KubeProxyConfiguration struct {
@@ -165,6 +167,8 @@ const (
 	// dropped by the container bridge.
 	HairpinNone = "none"
 )
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // A configuration field should go in KubeletFlags instead of KubeletConfiguration if any of these are true:
 // - its value will never, or cannot safely be changed during the lifetime of a node
@@ -305,10 +309,6 @@ type KubeletConfiguration struct {
 	// image garbage collection is never run. Lowest disk usage to garbage
 	// collect to.
 	ImageGCLowThresholdPercent int32
-	// lowDiskSpaceThresholdMB is the absolute free disk space, in MB, to
-	// maintain. When disk space falls below this threshold, new pods would
-	// be rejected.
-	LowDiskSpaceThresholdMB int32
 	// How frequently to calculate and cache volume disk usage for all pods
 	VolumeStatsAggPeriod metav1.Duration
 	// volumePluginDir is the full path of the directory in which to search
@@ -408,10 +408,6 @@ type KubeletConfiguration struct {
 	// run docker daemon with version  < 1.9 or an Aufs storage backend.
 	// Issue #10959 has more details.
 	SerializeImagePulls bool
-	// outOfDiskTransitionFrequency is duration for which the kubelet has to
-	// wait before transitioning out of out-of-disk node condition status.
-	// +optional
-	OutOfDiskTransitionFrequency metav1.Duration
 	// nodeLabels to add when registering the node in the cluster.
 	NodeLabels map[string]string
 	// nonMasqueradeCIDR configures masquerading: traffic to IPs outside this range will use IP masquerade.
@@ -563,6 +559,8 @@ type KubeletAnonymousAuthentication struct {
 	Enabled bool
 }
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 type KubeSchedulerConfiguration struct {
 	metav1.TypeMeta
 
@@ -649,6 +647,8 @@ type GroupResource struct {
 	// resource is the resource portion of the GroupResource.
 	Resource string
 }
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 type KubeControllerManagerConfiguration struct {
 	metav1.TypeMeta

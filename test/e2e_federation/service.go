@@ -28,8 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes/scheme"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/test/e2e/framework"
 	fedframework "k8s.io/kubernetes/test/e2e_federation/framework"
 
@@ -184,7 +184,7 @@ var _ = framework.KubeDescribe("Federated Services [Feature:Federation]", func()
 				backendPods = createBackendPodsOrFail(clusters, nsName, FederatedServicePodName)
 
 				service = createLBServiceOrFail(f.FederationClientset, nsName, FederatedServiceName)
-				obj, err := api.Scheme.DeepCopy(service)
+				obj, err := scheme.Scheme.DeepCopy(service)
 				// Cloning shouldn't fail. On the off-chance it does, we
 				// should shallow copy service to serviceShard before
 				// failing. If we don't do this we will never really
@@ -325,7 +325,7 @@ func verifyCascadingDeletionForService(clientset *fedclientset.Clientset, cluste
 	By(fmt.Sprintf("Waiting for service %s to be created in all underlying clusters", serviceName))
 	err := wait.Poll(5*time.Second, 2*time.Minute, func() (bool, error) {
 		for _, cluster := range clusters {
-			_, err := cluster.Core().Services(nsName).Get(serviceName, metav1.GetOptions{})
+			_, err := cluster.CoreV1().Services(nsName).Get(serviceName, metav1.GetOptions{})
 			if err != nil {
 				if !errors.IsNotFound(err) {
 					return false, err
@@ -346,7 +346,7 @@ func verifyCascadingDeletionForService(clientset *fedclientset.Clientset, cluste
 	shouldExist := orphanDependents == nil || *orphanDependents == true
 	for _, cluster := range clusters {
 		clusterName := cluster.Name
-		_, err := cluster.Core().Services(nsName).Get(serviceName, metav1.GetOptions{})
+		_, err := cluster.CoreV1().Services(nsName).Get(serviceName, metav1.GetOptions{})
 		if shouldExist && errors.IsNotFound(err) {
 			errMessages = append(errMessages, fmt.Sprintf("unexpected NotFound error for service %s in cluster %s, expected service to exist", serviceName, clusterName))
 		} else if !shouldExist && !errors.IsNotFound(err) {

@@ -5809,7 +5809,7 @@
    },
    "/apis/extensions/v1beta1/namespaces/{namespace}/deployments/{name}/rollback": {
     "post": {
-     "description": "create rollback of a DeploymentRollback",
+     "description": "create rollback of a Deployment",
      "consumes": [
       "*/*"
      ],
@@ -5824,7 +5824,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "createExtensionsV1beta1NamespacedDeploymentRollbackRollback",
+     "operationId": "createExtensionsV1beta1NamespacedDeploymentRollback",
      "parameters": [
       {
        "name": "body",
@@ -5881,7 +5881,7 @@
    },
    "/apis/extensions/v1beta1/namespaces/{namespace}/deployments/{name}/scale": {
     "get": {
-     "description": "read scale of the specified Scale",
+     "description": "read scale of the specified Deployment",
      "consumes": [
       "*/*"
      ],
@@ -5896,7 +5896,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "readExtensionsV1beta1NamespacedDeploymentsScale",
+     "operationId": "readExtensionsV1beta1NamespacedDeploymentScale",
      "responses": {
       "200": {
        "description": "OK",
@@ -5916,7 +5916,7 @@
      }
     },
     "put": {
-     "description": "replace scale of the specified Scale",
+     "description": "replace scale of the specified Deployment",
      "consumes": [
       "*/*"
      ],
@@ -5931,7 +5931,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "replaceExtensionsV1beta1NamespacedDeploymentsScale",
+     "operationId": "replaceExtensionsV1beta1NamespacedDeploymentScale",
      "parameters": [
       {
        "name": "body",
@@ -5961,7 +5961,7 @@
      }
     },
     "patch": {
-     "description": "partially update scale of the specified Scale",
+     "description": "partially update scale of the specified Deployment",
      "consumes": [
       "application/json-patch+json",
       "application/merge-patch+json",
@@ -5978,7 +5978,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "patchExtensionsV1beta1NamespacedDeploymentsScale",
+     "operationId": "patchExtensionsV1beta1NamespacedDeploymentScale",
      "parameters": [
       {
        "name": "body",
@@ -7263,7 +7263,7 @@
    },
    "/apis/extensions/v1beta1/namespaces/{namespace}/replicasets/{name}/scale": {
     "get": {
-     "description": "read scale of the specified Scale",
+     "description": "read scale of the specified ReplicaSet",
      "consumes": [
       "*/*"
      ],
@@ -7278,7 +7278,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "readExtensionsV1beta1NamespacedReplicasetsScale",
+     "operationId": "readExtensionsV1beta1NamespacedReplicaSetScale",
      "responses": {
       "200": {
        "description": "OK",
@@ -7298,7 +7298,7 @@
      }
     },
     "put": {
-     "description": "replace scale of the specified Scale",
+     "description": "replace scale of the specified ReplicaSet",
      "consumes": [
       "*/*"
      ],
@@ -7313,7 +7313,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "replaceExtensionsV1beta1NamespacedReplicasetsScale",
+     "operationId": "replaceExtensionsV1beta1NamespacedReplicaSetScale",
      "parameters": [
       {
        "name": "body",
@@ -7343,7 +7343,7 @@
      }
     },
     "patch": {
-     "description": "partially update scale of the specified Scale",
+     "description": "partially update scale of the specified ReplicaSet",
      "consumes": [
       "application/json-patch+json",
       "application/merge-patch+json",
@@ -7360,7 +7360,7 @@
      "tags": [
       "extensions_v1beta1"
      ],
-     "operationId": "patchExtensionsV1beta1NamespacedReplicasetsScale",
+     "operationId": "patchExtensionsV1beta1NamespacedReplicaSetScale",
      "parameters": [
       {
        "name": "body",
@@ -11166,6 +11166,15 @@
        "type": "string"
       }
      },
+     "priority": {
+      "description": "The priority value. Various system components use this field to find the priority of the pod. When Priority Admission Controller is enabled, it prevents users from setting this field. The admission controller populates this field from PriorityClassName. The higher the value, the higher the priority.",
+      "type": "integer",
+      "format": "int32"
+     },
+     "priorityClassName": {
+      "description": "If specified, indicates the pod's priority. \"SYSTEM\" is a special keyword which indicates the highest priority. Any other name must be defined by creating a PriorityClass object with that name. If not specified, the pod priority will be default or zero if there is no default.",
+      "type": "string"
+     },
      "restartPolicy": {
       "description": "Restart policy for all containers within the pod. One of Always, OnFailure, Never. Default to Always. More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#restart-policy",
       "type": "string"
@@ -11667,6 +11676,10 @@
    "io.k8s.api.core.v1.SecurityContext": {
     "description": "SecurityContext holds security configuration that will be applied to a container. Some fields are present in both SecurityContext and PodSecurityContext.  When both are set, the values in SecurityContext take precedence.",
     "properties": {
+     "allowPrivilegeEscalation": {
+      "description": "AllowPrivilegeEscalation controls whether a process can gain more privileges than it's parent process. This bool directly controls if the no_new_privs flag will be set on the container process. AllowPrivilegeEscalation is true always when the container is: 1) run as Privileged 2) has CAP_SYS_ADMIN",
+      "type": "boolean"
+     },
      "capabilities": {
       "description": "The capabilities to add/drop when running containers. Defaults to the default set of capabilities granted by the container runtime.",
       "$ref": "#/definitions/io.k8s.api.core.v1.Capabilities"
@@ -13237,6 +13250,11 @@
       "kind": "DeleteOptions"
      },
      {
+      "group": "apps",
+      "version": "v1beta2",
+      "kind": "DeleteOptions"
+     },
+     {
       "group": "authentication.k8s.io",
       "version": "v1",
       "kind": "DeleteOptions"
@@ -13314,6 +13332,11 @@
      {
       "group": "rbac.authorization.k8s.io",
       "version": "v1beta1",
+      "kind": "DeleteOptions"
+     },
+     {
+      "group": "scheduling.k8s.io",
+      "version": "v1alpha1",
       "kind": "DeleteOptions"
      },
      {
@@ -13725,6 +13748,11 @@
       "kind": "WatchEvent"
      },
      {
+      "group": "apps",
+      "version": "v1beta2",
+      "kind": "WatchEvent"
+     },
+     {
       "group": "authentication.k8s.io",
       "version": "v1",
       "kind": "WatchEvent"
@@ -13802,6 +13830,11 @@
      {
       "group": "rbac.authorization.k8s.io",
       "version": "v1beta1",
+      "kind": "WatchEvent"
+     },
+     {
+      "group": "scheduling.k8s.io",
+      "version": "v1alpha1",
       "kind": "WatchEvent"
      },
      {

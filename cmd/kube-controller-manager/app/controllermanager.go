@@ -33,25 +33,27 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/wait"
 
 	"k8s.io/apiserver/pkg/server/healthz"
 
-	clientv1 "k8s.io/api/core/v1"
+	"k8s.io/api/core/v1"
 	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/kubernetes"
 	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	certutil "k8s.io/client-go/util/cert"
 
+	"k8s.io/client-go/informers"
+	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/leaderelection"
+	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/kubernetes/cmd/kube-controller-manager/app/options"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
-	"k8s.io/kubernetes/pkg/client/leaderelection"
-	"k8s.io/kubernetes/pkg/client/leaderelection/resourcelock"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller"
 	serviceaccountcontroller "k8s.io/kubernetes/pkg/controller/serviceaccount"
@@ -127,7 +129,7 @@ func Run(s *options.CMServer) error {
 	if err != nil {
 		glog.Fatalf("Invalid API configuration: %v", err)
 	}
-	leaderElectionClient := clientset.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "leader-election"))
+	leaderElectionClient := kubernetes.NewForConfigOrDie(restclient.AddUserAgent(kubeconfig, "leader-election"))
 
 	go func() {
 		mux := http.NewServeMux()
@@ -153,8 +155,8 @@ func Run(s *options.CMServer) error {
 
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
-	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: v1core.New(kubeClient.Core().RESTClient()).Events("")})
-	recorder := eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "controller-manager"})
+	eventBroadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: v1core.New(kubeClient.CoreV1().RESTClient()).Events("")})
+	recorder := eventBroadcaster.NewRecorder(api.Scheme, v1.EventSource{Component: "controller-manager"})
 
 	run := func(stop <-chan struct{}) {
 		rootClientBuilder := controller.SimpleControllerClientBuilder{
@@ -164,7 +166,7 @@ func Run(s *options.CMServer) error {
 		if len(s.ServiceAccountKeyFile) > 0 && s.UseServiceAccountCredentials {
 			clientBuilder = controller.SAControllerClientBuilder{
 				ClientConfig:         restclient.AnonymousClientConfig(kubeconfig),
-				CoreClient:           kubeClient.Core(),
+				CoreClient:           kubeClient.CoreV1(),
 				AuthenticationClient: kubeClient.Authentication(),
 				Namespace:            "kube-system",
 			}
@@ -199,7 +201,7 @@ func Run(s *options.CMServer) error {
 	rl, err := resourcelock.New(s.LeaderElection.ResourceLock,
 		"kube-system",
 		"kube-controller-manager",
-		leaderElectionClient,
+		leaderElectionClient.CoreV1(),
 		resourcelock.ResourceLockConfig{
 			Identity:      id,
 			EventRecorder: recorder,
@@ -365,7 +367,10 @@ func GetAvailableResources(clientBuilder controller.ControllerClientBuilder) (ma
 
 	resourceMap, err := discoveryClient.ServerResources()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get supported resources from server: %v", err)
+		utilruntime.HandleError(fmt.Errorf("unable to get all supported resources from server: %v", err))
+	}
+	if len(resourceMap) == 0 {
+		return nil, fmt.Errorf("unable to get any supported resources from server")
 	}
 
 	allResources := map[schema.GroupVersionResource]bool{}

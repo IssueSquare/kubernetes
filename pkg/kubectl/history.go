@@ -31,16 +31,16 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	externalclientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/pkg/api"
 	k8s_api_v1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/apis/apps"
 	"k8s.io/kubernetes/pkg/apis/extensions"
-	externalclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 	"k8s.io/kubernetes/pkg/controller"
 	deploymentutil "k8s.io/kubernetes/pkg/controller/deployment/util"
+	sliceutil "k8s.io/kubernetes/pkg/kubectl/util/slice"
 	printersinternal "k8s.io/kubernetes/pkg/printers/internalversion"
-	sliceutil "k8s.io/kubernetes/pkg/util/slice"
 )
 
 const (
@@ -58,7 +58,7 @@ func HistoryViewerFor(kind schema.GroupKind, c clientset.Interface) (HistoryView
 		return &DeploymentHistoryViewer{c}, nil
 	case apps.Kind("StatefulSet"):
 		return &StatefulSetHistoryViewer{c}, nil
-	case extensions.Kind("DaemonSet"):
+	case extensions.Kind("DaemonSet"), apps.Kind("DaemonSet"):
 		return &DaemonSetHistoryViewer{c}, nil
 	}
 	return nil, fmt.Errorf("no history viewer has been implemented for %q", kind)

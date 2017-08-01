@@ -45,7 +45,7 @@ import (
 	"k8s.io/client-go/discovery"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset"
+	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/pkg/api"
 	k8s_api_v1 "k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/api/validation"
@@ -224,7 +224,7 @@ type ObjectMappingFactory interface {
 	// SwaggerSchema returns the schema declaration for the provided group version kind.
 	SwaggerSchema(schema.GroupVersionKind) (*swagger.ApiDeclaration, error)
 	// OpenAPISchema returns the schema openapi schema definiton
-	OpenAPISchema(cacheDir string) (*openapi.Resources, error)
+	OpenAPISchema(cacheDir string) (openapi.Resources, error)
 }
 
 // BuilderFactory holds the second level of factory methods.  These functions depend upon ObjectMappingFactory and ClientAccessFactory methods.

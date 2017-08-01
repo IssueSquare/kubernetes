@@ -18,6 +18,7 @@ package garbagecollector
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -31,11 +32,13 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/informers"
 	"k8s.io/client-go/util/workqueue"
-	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/externalversions"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/controller/garbagecollector/metaonly"
+	_ "k8s.io/kubernetes/pkg/util/reflector/prometheus" // for reflector metric registration
 	// install the prometheus plugin
 	_ "k8s.io/kubernetes/pkg/util/workqueue/prometheus"
 	// import known versions
@@ -71,6 +74,8 @@ type GarbageCollector struct {
 	// GC caches the owners that do not exist according to the API server.
 	absentOwnerCache *UIDCache
 	sharedInformers  informers.SharedInformerFactory
+
+	workerLock sync.RWMutex
 }
 
 func NewGarbageCollector(
@@ -106,12 +111,22 @@ func NewGarbageCollector(
 		sharedInformers:  sharedInformers,
 		ignoredResources: ignoredResources,
 	}
-	if err := gb.monitorsForResources(deletableResources); err != nil {
-		return nil, err
+	if err := gb.syncMonitors(deletableResources); err != nil {
+		utilruntime.HandleError(fmt.Errorf("failed to sync all monitors: %v", err))
 	}
 	gc.dependencyGraphBuilder = gb
 
 	return gc, nil
+}
+
+// resyncMonitors starts or stops resource monitors as needed to ensure that all
+// (and only) those resources present in the map are monitored.
+func (gc *GarbageCollector) resyncMonitors(deletableResources map[schema.GroupVersionResource]struct{}) error {
+	if err := gc.dependencyGraphBuilder.syncMonitors(deletableResources); err != nil {
+		return err
+	}
+	gc.dependencyGraphBuilder.startMonitors()
+	return nil
 }
 
 func (gc *GarbageCollector) Run(workers int, stopCh <-chan struct{}) {
@@ -123,9 +138,9 @@ func (gc *GarbageCollector) Run(workers int, stopCh <-chan struct{}) {
 	glog.Infof("Starting garbage collector controller")
 	defer glog.Infof("Shutting down garbage collector controller")
 
-	gc.dependencyGraphBuilder.Run(stopCh)
+	go gc.dependencyGraphBuilder.Run(stopCh)
 
-	if !controller.WaitForCacheSync("garbage collector", stopCh, gc.dependencyGraphBuilder.HasSynced) {
+	if !controller.WaitForCacheSync("garbage collector", stopCh, gc.dependencyGraphBuilder.IsSynced) {
 		return
 	}
 
@@ -137,13 +152,46 @@ func (gc *GarbageCollector) Run(workers int, stopCh <-chan struct{}) {
 		go wait.Until(gc.runAttemptToOrphanWorker, 1*time.Second, stopCh)
 	}
 
-	Register()
-
 	<-stopCh
 }
 
-func (gc *GarbageCollector) HasSynced() bool {
-	return gc.dependencyGraphBuilder.HasSynced()
+// resettableRESTMapper is a RESTMapper which is capable of resetting itself
+// from discovery.
+type resettableRESTMapper interface {
+	meta.RESTMapper
+	Reset()
+}
+
+// Sync periodically resyncs the garbage collector monitors with resources
+// returned found via the discoveryClient. Sync blocks, continuing to sync until
+// a message is received on stopCh.
+//
+// The discoveryClient should be the same client which underlies restMapper.
+func (gc *GarbageCollector) Sync(restMapper resettableRESTMapper, discoveryClient discovery.DiscoveryInterface, period time.Duration, stopCh <-chan struct{}) {
+	wait.Until(func() {
+		// Ensure workers are paused to avoid processing events before informers
+		// have resynced.
+		gc.workerLock.Lock()
+		defer gc.workerLock.Unlock()
+
+		restMapper.Reset()
+		deletableResources, err := GetDeletableResources(discoveryClient)
+		if err != nil {
+			utilruntime.HandleError(err)
+			return
+		}
+		if err := gc.resyncMonitors(deletableResources); err != nil {
+			utilruntime.HandleError(fmt.Errorf("failed to sync resource monitors: %v", err))
+			return
+		}
+		if !controller.WaitForCacheSync("garbage collector", stopCh, gc.dependencyGraphBuilder.IsSynced) {
+			utilruntime.HandleError(fmt.Errorf("timed out waiting for dependency graph builder sync during GC sync"))
+		}
+	}, period, stopCh)
+}
+
+func (gc *GarbageCollector) IsSynced() bool {
+	return gc.dependencyGraphBuilder.IsSynced()
 }
 
 func (gc *GarbageCollector) runAttemptToDeleteWorker() {
@@ -153,6 +201,8 @@ func (gc *GarbageCollector) runAttemptToDeleteWorker() {
 
 func (gc *GarbageCollector) attemptToDeleteWorker() bool {
 	item, quit := gc.attemptToDelete.Get()
+	gc.workerLock.RLock()
+	defer gc.workerLock.RUnlock()
 	if quit {
 		return false
 	}
@@ -164,13 +214,18 @@ func (gc *GarbageCollector) attemptToDeleteWorker() bool {
 	}
 	err := gc.attemptToDeleteItem(n)
 	if err != nil {
-		// TODO: remove this block when gc starts using dynamic RESTMapper.
-		if restMappingError, ok := err.(*restMappingError); ok {
-			utilruntime.HandleError(fmt.Errorf("Ignore syncing item %#v: %s", n, restMappingError.Message()))
-			// The RESTMapper is static, so no need to retry, otherwise we'll get the same error.
-			return true
+		if _, ok := err.(*restMappingError); ok {
+			// There are at least two ways this can happen:
+			// 1. The reference is to an object of a custom type that has not yet been
+			//    recognized by gc.restMapper (this is a transient error).
+			// 2. The reference is to an invalid group/version. We don't currently
+			//    have a way to distinguish this from a valid type we will recognize
+			//    after the next discovery sync.
+			// For now, record the error and retry.
+			glog.V(5).Infof("error syncing item %s: %v", n, err)
+		} else {
+			utilruntime.HandleError(fmt.Errorf("error syncing item %s: %v", n, err))
 		}
-		utilruntime.HandleError(fmt.Errorf("Error syncing item %#v: %v", n, err))
 		// retry if garbage collection of an object failed.
 		gc.attemptToDelete.AddRateLimited(item)
 	}
@@ -364,7 +419,7 @@ func (gc *GarbageCollector) attemptToDeleteItem(item *node) error {
 				break
 			}
 		}
-		glog.V(2).Infof("at least one owner of object %s has FinalizerDeletingDependents, and the object itself has dependents, so it is going to be deleted with Foreground", item.identity)
+		glog.V(2).Infof("at least one owner of object %s has FinalizerDeletingDependents, and the object itself has dependents, so it is going to be deleted in Foreground", item.identity)
 		// the deletion event will be observed by the graphBuilder, so the item
 		// will be processed again in processDeletingDependentsItem. If it
 		// doesn't have dependents, the function will remove the
@@ -375,9 +430,21 @@ func (gc *GarbageCollector) attemptToDeleteItem(item *node) error {
 	default:
 		// item doesn't have any solid owner, so it needs to be garbage
 		// collected. Also, none of item's owners is waiting for the deletion of
-		// the dependents, so GC deletes item with Default.
-		glog.V(2).Infof("delete object %s with Default", item.identity)
-		return gc.deleteObject(item.identity, nil)
+		// the dependents, so set propagationPolicy based on existing finalizers.
+		var policy metav1.DeletionPropagation
+		switch {
+		case hasOrphanFinalizer(latest):
+			// if an existing orphan finalizer is already on the object, honor it.
+			policy = metav1.DeletePropagationOrphan
+		case hasDeleteDependentsFinalizer(latest):
+			// if an existing foreground finalizer is already on the object, honor it.
+			policy = metav1.DeletePropagationForeground
+		default:
+			// otherwise, default to background.
+			policy = metav1.DeletePropagationBackground
+		}
+		glog.V(2).Infof("delete object %s with propagation policy %s", item.identity, policy)
+		return gc.deleteObject(item.identity, &policy)
 	}
 }
 
@@ -399,17 +466,30 @@ func (gc *GarbageCollector) processDeletingDependentsItem(item *node) error {
 
 // dependents are copies of pointers to the owner's dependents, they don't need to be locked.
 func (gc *GarbageCollector) orphanDependents(owner objectReference, dependents []*node) error {
-	var errorsSlice []error
-	for _, dependent := range dependents {
-		// the dependent.identity.UID is used as precondition
-		patch := deleteOwnerRefPatch(dependent.identity.UID, owner.UID)
-		_, err := gc.patchObject(dependent.identity, patch)
-		// note that if the target ownerReference doesn't exist in the
-		// dependent, strategic merge patch will NOT return an error.
-		if err != nil && !errors.IsNotFound(err) {
-			errorsSlice = append(errorsSlice, fmt.Errorf("orphaning %s failed, %v", dependent.identity, err))
-		}
+	errCh := make(chan error, len(dependents))
+	wg := sync.WaitGroup{}
+	wg.Add(len(dependents))
+	for i := range dependents {
+		go func(dependent *node) {
+			defer wg.Done()
+			// the dependent.identity.UID is used as precondition
+			patch := deleteOwnerRefPatch(dependent.identity.UID, owner.UID)
+			_, err := gc.patchObject(dependent.identity, patch)
+			// note that if the target ownerReference doesn't exist in the
+			// dependent, strategic merge patch will NOT return an error.
+			if err != nil && !errors.IsNotFound(err) {
+				errCh <- fmt.Errorf("orphaning %s failed, %v", dependent.identity, err)
+			}
+		}(dependents[i])
 	}
+	wg.Wait()
+	close(errCh)
+
+	var errorsSlice []error
+	for e := range errCh {
+		errorsSlice = append(errorsSlice, e)
+	}
+
 	if len(errorsSlice) != 0 {
 		return fmt.Errorf("failed to orphan dependents of owner %s, got errors: %s", owner, utilerrors.NewAggregate(errorsSlice).Error())
 	}
@@ -429,6 +509,8 @@ func (gc *GarbageCollector) runAttemptToOrphanWorker() {
 // these steps fail.
 func (gc *GarbageCollector) attemptToOrphanWorker() bool {
 	item, quit := gc.attemptToOrphan.Get()
+	gc.workerLock.RLock()
+	defer gc.workerLock.RUnlock()
 	if quit {
 		return false
 	}
@@ -472,4 +554,20 @@ func (gc *GarbageCollector) GraphHasUID(UIDs []types.UID) bool {
 		}
 	}
 	return false
+}
+
+// GetDeletableResources returns all resources from discoveryClient that the
+// garbage collector should recognize and work with. More specifically, all
+// preferred resources which support the 'delete' verb.
+func GetDeletableResources(discoveryClient discovery.DiscoveryInterface) (map[schema.GroupVersionResource]struct{}, error) {
+	preferredResources, err := discoveryClient.ServerPreferredResources()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get supported resources from server: %v", err)
+	}
+	deletableResources := discovery.FilteredBy(discovery.SupportsAllVerbs{Verbs: []string{"delete"}}, preferredResources)
+	deletableGroupVersionResources, err := discovery.GroupVersionResources(deletableResources)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to parse resources from server: %v", err)
+	}
+	return deletableGroupVersionResources, nil
 }

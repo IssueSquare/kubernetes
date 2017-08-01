@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"k8s.io/api/core/v1"
-	clientv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -33,12 +32,12 @@ import (
 	clientcache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/algorithm/predicates"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/core"
 	"k8s.io/kubernetes/plugin/pkg/scheduler/schedulercache"
 	schedulertesting "k8s.io/kubernetes/plugin/pkg/scheduler/testing"
+	"k8s.io/kubernetes/plugin/pkg/scheduler/util"
 )
 
 type fakeBinder struct {
@@ -55,7 +54,7 @@ func (fc fakePodConditionUpdater) Update(pod *v1.Pod, podCondition *v1.PodCondit
 
 func podWithID(id, desiredHost string) *v1.Pod {
 	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: id, SelfLink: testapi.Default.SelfLink("pods", id)},
+		ObjectMeta: metav1.ObjectMeta{Name: id, SelfLink: util.Test.SelfLink(string(v1.ResourcePods), id)},
 		Spec: v1.PodSpec{
 			NodeName: desiredHost,
 		},
@@ -65,7 +64,7 @@ func podWithID(id, desiredHost string) *v1.Pod {
 func deletingPod(id string) *v1.Pod {
 	deletionTimestamp := metav1.Now()
 	return &v1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: id, SelfLink: testapi.Default.SelfLink("pods", id), DeletionTimestamp: &deletionTimestamp},
+		ObjectMeta: metav1.ObjectMeta{Name: id, SelfLink: util.Test.SelfLink(string(v1.ResourcePods), id), DeletionTimestamp: &deletionTimestamp},
 		Spec: v1.PodSpec{
 			NodeName: "",
 		},
@@ -177,13 +176,13 @@ func TestScheduler(t *testing.T) {
 				NextPod: func() *v1.Pod {
 					return item.sendPod
 				},
-				Recorder: eventBroadcaster.NewRecorder(api.Scheme, clientv1.EventSource{Component: "scheduler"}),
+				Recorder: eventBroadcaster.NewRecorder(api.Scheme, v1.EventSource{Component: "scheduler"}),
 			},
 		}
 
 		s, _ := NewFromConfigurator(configurator, nil...)
 		called := make(chan struct{})
-		events := eventBroadcaster.StartEventWatcher(func(e *clientv1.Event) {
+		events := eventBroadcaster.StartEventWatcher(func(e *v1.Event) {
 			if e, a := item.eventReason, e.Reason; e != a {
 				t.Errorf("%v: expected %v, got %v", i, e, a)
 			}

@@ -19,12 +19,12 @@ package kubemark
 import (
 	"time"
 
+	clientset "k8s.io/client-go/kubernetes"
 	kubeletapp "k8s.io/kubernetes/cmd/kubelet/app"
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/componentconfig"
 	"k8s.io/kubernetes/pkg/apis/componentconfig/v1alpha1"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/kubelet"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
@@ -44,7 +44,7 @@ import (
 type HollowKubelet struct {
 	KubeletFlags         *options.KubeletFlags
 	KubeletConfiguration *componentconfig.KubeletConfiguration
-	KubeletDeps          *kubelet.KubeletDeps
+	KubeletDeps          *kubelet.Dependencies
 }
 
 func NewHollowKubelet(
@@ -66,7 +66,7 @@ func NewHollowKubelet(
 	// -----------------
 	volumePlugins := empty_dir.ProbeVolumePlugins()
 	volumePlugins = append(volumePlugins, secret.ProbeVolumePlugins()...)
-	d := &kubelet.KubeletDeps{
+	d := &kubelet.Dependencies{
 		KubeClient:        client,
 		DockerClient:      dockerClient,
 		CAdvisorInterface: cadvisorInterface,
@@ -89,7 +89,7 @@ func NewHollowKubelet(
 
 // Starts this HollowKubelet and blocks.
 func (hk *HollowKubelet) Run() {
-	if err := kubeletapp.RunKubelet(hk.KubeletFlags, hk.KubeletConfiguration, hk.KubeletDeps, false, false); err != nil {
+	if err := kubeletapp.RunKubelet(hk.KubeletFlags, hk.KubeletConfiguration, hk.KubeletDeps, false); err != nil {
 		glog.Fatalf("Failed to run HollowKubelet: %v. Exiting.", err)
 	}
 	select {}
@@ -134,14 +134,12 @@ func GetHollowKubeletConfig(
 	c.MinimumGCAge.Duration = 1 * time.Minute
 	c.NodeStatusUpdateFrequency.Duration = 10 * time.Second
 	c.SyncFrequency.Duration = 10 * time.Second
-	c.OutOfDiskTransitionFrequency.Duration = 5 * time.Minute
 	c.EvictionPressureTransitionPeriod.Duration = 5 * time.Minute
 	c.MaxPods = int32(maxPods)
 	c.PodsPerCore = int32(podsPerCore)
 	c.ClusterDNS = []string{}
 	c.ImageGCHighThresholdPercent = 90
 	c.ImageGCLowThresholdPercent = 80
-	c.LowDiskSpaceThresholdMB = 256
 	c.VolumeStatsAggPeriod.Duration = time.Minute
 	c.CgroupRoot = ""
 	c.ContainerRuntime = kubetypes.DockerContainerRuntime

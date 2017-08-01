@@ -27,14 +27,14 @@ import (
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
-	clientv1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
 
 	"k8s.io/api/core/v1"
+	clientset "k8s.io/client-go/kubernetes"
+	extensionslisters "k8s.io/client-go/listers/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
-	extensionslisters "k8s.io/kubernetes/pkg/client/listers/extensions/v1beta1"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"k8s.io/kubernetes/pkg/controller"
 	"k8s.io/kubernetes/pkg/kubelet/util/format"
@@ -265,7 +265,7 @@ func nodeExistsInCloudProvider(cloud cloudprovider.Interface, nodeName types.Nod
 }
 
 func recordNodeEvent(recorder record.EventRecorder, nodeName, nodeUID, eventtype, reason, event string) {
-	ref := &clientv1.ObjectReference{
+	ref := &v1.ObjectReference{
 		Kind:      "Node",
 		Name:      nodeName,
 		UID:       types.UID(nodeUID),
@@ -276,7 +276,7 @@ func recordNodeEvent(recorder record.EventRecorder, nodeName, nodeUID, eventtype
 }
 
 func recordNodeStatusChange(recorder record.EventRecorder, node *v1.Node, new_status string) {
-	ref := &clientv1.ObjectReference{
+	ref := &v1.ObjectReference{
 		Kind:      "Node",
 		Name:      node.Name,
 		UID:       node.UID,
@@ -319,7 +319,7 @@ func swapNodeControllerTaint(kubeClient clientset.Interface, taintToAdd, taintTo
 
 func createAddNodeHandler(f func(node *v1.Node) error) func(obj interface{}) {
 	return func(originalObj interface{}) {
-		obj, err := api.Scheme.DeepCopy(originalObj)
+		obj, err := scheme.Scheme.DeepCopy(originalObj)
 		if err != nil {
 			utilruntime.HandleError(err)
 			return
@@ -334,12 +334,12 @@ func createAddNodeHandler(f func(node *v1.Node) error) func(obj interface{}) {
 
 func createUpdateNodeHandler(f func(oldNode, newNode *v1.Node) error) func(oldObj, newObj interface{}) {
 	return func(origOldObj, origNewObj interface{}) {
-		oldObj, err := api.Scheme.DeepCopy(origOldObj)
+		oldObj, err := scheme.Scheme.DeepCopy(origOldObj)
 		if err != nil {
 			utilruntime.HandleError(err)
 			return
 		}
-		newObj, err := api.Scheme.DeepCopy(origNewObj)
+		newObj, err := scheme.Scheme.DeepCopy(origNewObj)
 		if err != nil {
 			utilruntime.HandleError(err)
 			return
@@ -355,7 +355,7 @@ func createUpdateNodeHandler(f func(oldNode, newNode *v1.Node) error) func(oldOb
 
 func createDeleteNodeHandler(f func(node *v1.Node) error) func(obj interface{}) {
 	return func(originalObj interface{}) {
-		obj, err := api.Scheme.DeepCopy(originalObj)
+		obj, err := scheme.Scheme.DeepCopy(originalObj)
 		if err != nil {
 			utilruntime.HandleError(err)
 			return

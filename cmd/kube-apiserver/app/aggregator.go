@@ -41,8 +41,7 @@ import (
 	apiregistrationclient "k8s.io/kube-aggregator/pkg/client/clientset_generated/internalclientset/typed/apiregistration/internalversion"
 	"k8s.io/kube-aggregator/pkg/controllers/autoregister"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
-	informers "k8s.io/kubernetes/pkg/client/informers/informers_generated/internalversion"
-	"k8s.io/kubernetes/pkg/master/thirdparty"
+	"k8s.io/kubernetes/pkg/master/controller/crdregistration"
 )
 
 func createAggregatorConfig(kubeAPIServerConfig genericapiserver.Config, commandOptions *options.ServerRunOptions, externalInformers kubeexternalinformers.SharedInformerFactory, serviceResolver aggregatorapiserver.ServiceResolver, proxyTransport *http.Transport) (*aggregatorapiserver.Config, error) {
@@ -85,7 +84,7 @@ func createAggregatorConfig(kubeAPIServerConfig genericapiserver.Config, command
 	return aggregatorConfig, nil
 }
 
-func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delegateAPIServer genericapiserver.DelegationTarget, kubeInformers informers.SharedInformerFactory, apiExtensionInformers apiextensionsinformers.SharedInformerFactory) (*aggregatorapiserver.APIAggregator, error) {
+func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delegateAPIServer genericapiserver.DelegationTarget, apiExtensionInformers apiextensionsinformers.SharedInformerFactory) (*aggregatorapiserver.APIAggregator, error) {
 	aggregatorServer, err := aggregatorConfig.Complete().NewWithDelegate(delegateAPIServer)
 	if err != nil {
 		return nil, err
@@ -98,14 +97,13 @@ func createAggregatorServer(aggregatorConfig *aggregatorapiserver.Config, delega
 	}
 	autoRegistrationController := autoregister.NewAutoRegisterController(aggregatorServer.APIRegistrationInformers.Apiregistration().InternalVersion().APIServices(), apiRegistrationClient)
 	apiServices := apiServicesToRegister(delegateAPIServer, autoRegistrationController)
-	tprRegistrationController := thirdparty.NewAutoRegistrationController(
-		kubeInformers.Extensions().InternalVersion().ThirdPartyResources(),
+	crdRegistrationController := crdregistration.NewAutoRegistrationController(
 		apiExtensionInformers.Apiextensions().InternalVersion().CustomResourceDefinitions(),
 		autoRegistrationController)
 
 	aggregatorServer.GenericAPIServer.AddPostStartHook("kube-apiserver-autoregistration", func(context genericapiserver.PostStartHookContext) error {
 		go autoRegistrationController.Run(5, context.StopCh)
-		go tprRegistrationController.Run(5, context.StopCh)
+		go crdRegistrationController.Run(5, context.StopCh)
 		return nil
 	})
 	aggregatorServer.GenericAPIServer.AddHealthzChecks(healthz.NamedCheck("autoregister-completion", func(r *http.Request) error {
@@ -176,6 +174,7 @@ var apiVersionPriorities = map[schema.GroupVersion]priority{
 	{Group: "extensions", Version: "v1beta1"}: {group: 17900, version: 1},
 	// to my knowledge, nothing below here collides
 	{Group: "apps", Version: "v1beta1"}:                          {group: 17800, version: 1},
+	{Group: "apps", Version: "v1beta2"}:                          {group: 17800, version: 1},
 	{Group: "authentication.k8s.io", Version: "v1"}:              {group: 17700, version: 15},
 	{Group: "authentication.k8s.io", Version: "v1beta1"}:         {group: 17700, version: 9},
 	{Group: "authorization.k8s.io", Version: "v1"}:               {group: 17600, version: 15},

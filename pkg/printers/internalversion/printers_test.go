@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -103,15 +104,135 @@ func TestPrintDefault(t *testing.T) {
 	}
 }
 
+func TestPrintUnstructuredObject(t *testing.T) {
+	obj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Test",
+			"dummy1":     "present",
+			"dummy2":     "present",
+			"metadata": map[string]interface{}{
+				"name":              "MyName",
+				"namespace":         "MyNamespace",
+				"creationTimestamp": "2017-04-01T00:00:00Z",
+				"resourceVersion":   123,
+				"uid":               "00000000-0000-0000-0000-000000000001",
+				"dummy3":            "present",
+				"labels":            map[string]interface{}{"test": "other"},
+			},
+			/*"items": []interface{}{
+				map[string]interface{}{
+					"itemBool": true,
+					"itemInt":  42,
+				},
+			},*/
+			"url":    "http://localhost",
+			"status": "ok",
+		},
+	}
+
+	tests := []struct {
+		expected string
+		options  printers.PrintOptions
+		object   runtime.Object
+	}{
+		{
+			expected: "NAME\\s+AGE\nMyName\\s+\\d+",
+			object:   obj,
+		},
+		{
+			options: printers.PrintOptions{
+				WithNamespace: true,
+			},
+			expected: "NAMESPACE\\s+NAME\\s+AGE\nMyNamespace\\s+MyName\\s+\\d+",
+			object:   obj,
+		},
+		{
+			options: printers.PrintOptions{
+				ShowLabels:    true,
+				WithNamespace: true,
+			},
+			expected: "NAMESPACE\\s+NAME\\s+AGE\\s+LABELS\nMyNamespace\\s+MyName\\s+\\d+\\w+\\s+test\\=other",
+			object:   obj,
+		},
+		{
+			expected: "NAME\\s+AGE\nMyName\\s+\\d+\\w+\nMyName2\\s+\\d+",
+			object: &unstructured.Unstructured{
+				Object: map[string]interface{}{
+					"apiVersion": "v1",
+					"kind":       "Test",
+					"dummy1":     "present",
+					"dummy2":     "present",
+					"items": []interface{}{
+						map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"name":              "MyName",
+								"namespace":         "MyNamespace",
+								"creationTimestamp": "2017-04-01T00:00:00Z",
+								"resourceVersion":   123,
+								"uid":               "00000000-0000-0000-0000-000000000001",
+								"dummy3":            "present",
+								"labels":            map[string]interface{}{"test": "other"},
+							},
+						},
+						map[string]interface{}{
+							"metadata": map[string]interface{}{
+								"name":              "MyName2",
+								"namespace":         "MyNamespace",
+								"creationTimestamp": "2017-04-01T00:00:00Z",
+								"resourceVersion":   123,
+								"uid":               "00000000-0000-0000-0000-000000000001",
+								"dummy3":            "present",
+								"labels":            "badlabel",
+							},
+						},
+					},
+					"url":    "http://localhost",
+					"status": "ok",
+				},
+			},
+		},
+	}
+	out := bytes.NewBuffer([]byte{})
+
+	for _, test := range tests {
+		out.Reset()
+		printer := printers.NewHumanReadablePrinter(nil, nil, test.options).With(AddDefaultHandlers)
+		printer.PrintObj(test.object, out)
+
+		matches, err := regexp.MatchString(test.expected, out.String())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !matches {
+			t.Errorf("wanted:\n%s\ngot:\n%s", test.expected, out)
+		}
+	}
+}
+
 type TestPrintType struct {
 	Data string
 }
 
 func (obj *TestPrintType) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (obj *TestPrintType) DeepCopyObject() runtime.Object {
+	if obj == nil {
+		return nil
+	}
+	clone := *obj
+	return &clone
+}
 
 type TestUnknownType struct{}
 
 func (obj *TestUnknownType) GetObjectKind() schema.ObjectKind { return schema.EmptyObjectKind }
+func (obj *TestUnknownType) DeepCopyObject() runtime.Object {
+	if obj == nil {
+		return nil
+	}
+	clone := *obj
+	return &clone
+}
 
 func TestPrinter(t *testing.T) {
 	//test inputs
@@ -704,16 +825,6 @@ func TestPrintNodeStatus(t *testing.T) {
 			},
 			status: "Unknown,SchedulingDisabled",
 		},
-		{
-			node: api.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   "foo12",
-					Labels: map[string]string{"kubeadm.alpha.kubernetes.io/role": "node"},
-				},
-				Status: api.NodeStatus{Conditions: []api.NodeCondition{{Type: api.NodeReady, Status: api.ConditionTrue}}},
-			},
-			status: "Ready,node",
-		},
 	}
 
 	for _, test := range table {
@@ -983,10 +1094,14 @@ func TestPrintHunmanReadableIngressWithColumnLabels(t *testing.T) {
 			},
 		},
 	}
-	buff := bytes.Buffer{}
-	printIngress(&ingress, &buff, printers.PrintOptions{
-		ColumnLabels: []string{"app_name"},
-	})
+	buff := bytes.NewBuffer([]byte{})
+	table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&ingress, printers.PrintOptions{ColumnLabels: []string{"app_name"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := printers.PrintTable(table, buff, printers.PrintOptions{NoHeaders: true}); err != nil {
+		t.Fatal(err)
+	}
 	output := string(buff.Bytes())
 	appName := ingress.ObjectMeta.Labels["app_name"]
 	if !strings.Contains(output, appName) {
@@ -1108,8 +1223,14 @@ func TestPrintHumanReadableService(t *testing.T) {
 
 	for _, svc := range tests {
 		for _, wide := range []bool{false, true} {
-			buff := bytes.Buffer{}
-			printService(&svc, &buff, printers.PrintOptions{Wide: wide})
+			buff := bytes.NewBuffer([]byte{})
+			table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&svc, printers.PrintOptions{Wide: wide})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := printers.PrintTable(table, buff, printers.PrintOptions{NoHeaders: true}); err != nil {
+				t.Fatal(err)
+			}
 			output := string(buff.Bytes())
 			ip := svc.Spec.ClusterIP
 			if !strings.Contains(output, ip) {
@@ -1477,7 +1598,7 @@ func TestPrintPod(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test5"},
 				Spec:       api.PodSpec{Containers: make([]api.Container, 2)},
 				Status: api.PodStatus{
-					Reason: "OutOfDisk",
+					Reason: "podReason",
 					Phase:  "podPhase",
 					ContainerStatuses: []api.ContainerStatus{
 						{Ready: true, RestartCount: 3, State: api.ContainerState{Running: &api.ContainerStateRunning{}}},
@@ -1485,7 +1606,7 @@ func TestPrintPod(t *testing.T) {
 					},
 				},
 			},
-			[]metav1alpha1.TableRow{{Cells: []interface{}{"test5", "1/2", "OutOfDisk", 6, "<unknown>"}}},
+			[]metav1alpha1.TableRow{{Cells: []interface{}{"test5", "1/2", "podReason", 6, "<unknown>"}}},
 		},
 	}
 
@@ -1825,7 +1946,13 @@ func TestPrintDaemonSet(t *testing.T) {
 
 	buf := bytes.NewBuffer([]byte{})
 	for _, test := range tests {
-		printDaemonSet(&test.ds, buf, printers.PrintOptions{})
+		table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.ds, printers.PrintOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
 		if !strings.HasPrefix(buf.String(), test.startsWith) {
 			t.Fatalf("Expected to start with %s but got %s", test.startsWith, buf.String())
 		}
@@ -1873,7 +2000,13 @@ func TestPrintJob(t *testing.T) {
 
 	buf := bytes.NewBuffer([]byte{})
 	for _, test := range tests {
-		printJob(&test.job, buf, printers.PrintOptions{})
+		table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.job, printers.PrintOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
 		if buf.String() != test.expect {
 			t.Fatalf("Expected: %s, got: %s", test.expect, buf.String())
 		}
@@ -2320,6 +2453,8 @@ func TestPrintPodShowLabels(t *testing.T) {
 }
 
 func TestPrintService(t *testing.T) {
+	single_ExternalIP := []string{"80.11.12.10"}
+	mul_ExternalIP := []string{"80.11.12.10", "80.11.12.11"}
 	tests := []struct {
 		service api.Service
 		expect  string
@@ -2331,8 +2466,10 @@ func TestPrintService(t *testing.T) {
 				Spec: api.ServiceSpec{
 					Type: api.ServiceTypeClusterIP,
 					Ports: []api.ServicePort{
-						{Protocol: "tcp",
-							Port: 2233},
+						{
+							Protocol: "tcp",
+							Port:     2233,
+						},
 					},
 					ClusterIP: "10.9.8.7",
 				},
@@ -2340,13 +2477,14 @@ func TestPrintService(t *testing.T) {
 			"test1\tClusterIP\t10.9.8.7\t<none>\t2233/tcp\t<unknown>\n",
 		},
 		{
-			// Test name, cluster ip, port:nodePort with protocol
+			// Test NodePort service
 			api.Service{
 				ObjectMeta: metav1.ObjectMeta{Name: "test2"},
 				Spec: api.ServiceSpec{
 					Type: api.ServiceTypeNodePort,
 					Ports: []api.ServicePort{
-						{Protocol: "tcp",
+						{
+							Protocol: "tcp",
 							Port:     8888,
 							NodePort: 9999,
 						},
@@ -2356,11 +2494,123 @@ func TestPrintService(t *testing.T) {
 			},
 			"test2\tNodePort\t10.9.8.7\t<none>\t8888:9999/tcp\t<unknown>\n",
 		},
+		{
+			// Test LoadBalancer service
+			api.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test3"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeLoadBalancer,
+					Ports: []api.ServicePort{
+						{
+							Protocol: "tcp",
+							Port:     8888,
+						},
+					},
+					ClusterIP: "10.9.8.7",
+				},
+			},
+			"test3\tLoadBalancer\t10.9.8.7\t<pending>\t8888/tcp\t<unknown>\n",
+		},
+		{
+			// Test LoadBalancer service with single ExternalIP and no LoadBalancerStatus
+			api.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test4"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeLoadBalancer,
+					Ports: []api.ServicePort{
+						{
+							Protocol: "tcp",
+							Port:     8888,
+						},
+					},
+					ClusterIP:   "10.9.8.7",
+					ExternalIPs: single_ExternalIP,
+				},
+			},
+			"test4\tLoadBalancer\t10.9.8.7\t80.11.12.10\t8888/tcp\t<unknown>\n",
+		},
+		{
+			// Test LoadBalancer service with single ExternalIP
+			api.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test5"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeLoadBalancer,
+					Ports: []api.ServicePort{
+						{
+							Protocol: "tcp",
+							Port:     8888,
+						},
+					},
+					ClusterIP:   "10.9.8.7",
+					ExternalIPs: single_ExternalIP,
+				},
+				Status: api.ServiceStatus{
+					LoadBalancer: api.LoadBalancerStatus{
+						Ingress: []api.LoadBalancerIngress{
+							{
+								IP:       "3.4.5.6",
+								Hostname: "test.cluster.com",
+							},
+						},
+					},
+				},
+			},
+			"test5\tLoadBalancer\t10.9.8.7\t3.4.5.6,80.11.12.10\t8888/tcp\t<unknown>\n",
+		},
+		{
+			// Test LoadBalancer service with mul ExternalIPs
+			api.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test6"},
+				Spec: api.ServiceSpec{
+					Type: api.ServiceTypeLoadBalancer,
+					Ports: []api.ServicePort{
+						{
+							Protocol: "tcp",
+							Port:     8888,
+						},
+					},
+					ClusterIP:   "10.9.8.7",
+					ExternalIPs: mul_ExternalIP,
+				},
+				Status: api.ServiceStatus{
+					LoadBalancer: api.LoadBalancerStatus{
+						Ingress: []api.LoadBalancerIngress{
+							{
+								IP:       "2.3.4.5",
+								Hostname: "test.cluster.local",
+							},
+							{
+								IP:       "3.4.5.6",
+								Hostname: "test.cluster.com",
+							},
+						},
+					},
+				},
+			},
+			"test6\tLoadBalancer\t10.9.8.7\t2.3.4.5,3.4.5.6,80.11.12.10,80.11.12.11\t8888/tcp\t<unknown>\n",
+		},
+		{
+			// Test ExternalName service
+			api.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: "test7"},
+				Spec: api.ServiceSpec{
+					Type:         api.ServiceTypeExternalName,
+					ExternalName: "my.database.example.com",
+				},
+			},
+			"test7\tExternalName\t<none>\tmy.database.example.com\t<none>\t<unknown>\n",
+		},
 	}
 
 	buf := bytes.NewBuffer([]byte{})
 	for _, test := range tests {
-		printService(&test.service, buf, printers.PrintOptions{})
+		table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.service, printers.PrintOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
 		// We ignore time
 		if buf.String() != test.expect {
 			t.Fatalf("Expected: %s, but got: %s", test.expect, buf.String())
@@ -2394,7 +2644,13 @@ func TestPrintPodDisruptionBudget(t *testing.T) {
 
 	buf := bytes.NewBuffer([]byte{})
 	for _, test := range tests {
-		printPodDisruptionBudget(&test.pdb, buf, printers.PrintOptions{})
+		table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.pdb, printers.PrintOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
 		if buf.String() != test.expect {
 			t.Fatalf("Expected: %s, got: %s", test.expect, buf.String())
 		}
@@ -2559,13 +2815,25 @@ func TestPrintReplicaSet(t *testing.T) {
 
 	buf := bytes.NewBuffer([]byte{})
 	for _, test := range tests {
-		printReplicaSet(&test.replicaSet, buf, printers.PrintOptions{})
+		table, err := printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.replicaSet, printers.PrintOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true}); err != nil {
+			t.Fatal(err)
+		}
 		if buf.String() != test.expect {
 			t.Fatalf("Expected: %s, got: %s", test.expect, buf.String())
 		}
 		buf.Reset()
 
-		printReplicaSet(&test.replicaSet, buf, printers.PrintOptions{Wide: true})
+		table, err = printers.NewTablePrinter().With(AddHandlers).PrintTable(&test.replicaSet, printers.PrintOptions{Wide: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := printers.PrintTable(table, buf, printers.PrintOptions{NoHeaders: true, Wide: true}); err != nil {
+			t.Fatal(err)
+		}
 		if buf.String() != test.wideExpect {
 			t.Fatalf("Expected: %s, got: %s", test.wideExpect, buf.String())
 		}

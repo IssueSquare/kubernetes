@@ -74,6 +74,8 @@ type KubeProxyConntrackConfiguration struct {
 	TCPCloseWaitTimeout metav1.Duration `json:"tcpCloseWaitTimeout"`
 }
 
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
 // KubeProxyConfiguration contains everything necessary to configure the
 // Kubernetes proxy server.
 type KubeProxyConfiguration struct {
@@ -143,6 +145,8 @@ const (
 	ProxyModeUserspace ProxyMode = "userspace"
 	ProxyModeIPTables  ProxyMode = "iptables"
 )
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 type KubeSchedulerConfiguration struct {
 	metav1.TypeMeta `json:",inline"`
@@ -240,6 +244,8 @@ type LeaderElectionConfiguration struct {
 	// during leader election cycles.
 	ResourceLock string `json:"resourceLock"`
 }
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // A configuration field should go in KubeletFlags instead of KubeletConfiguration if any of these are true:
 // - its value will never, or cannot safely be changed during the lifetime of a node
@@ -380,10 +386,6 @@ type KubeletConfiguration struct {
 	// image garbage collection is never run. Lowest disk usage to garbage
 	// collect to. The percent is calculated as this field value out of 100.
 	ImageGCLowThresholdPercent *int32 `json:"imageGCLowThresholdPercent"`
-	// lowDiskSpaceThresholdMB is the absolute free disk space, in MB, to
-	// maintain. When disk space falls below this threshold, new pods would
-	// be rejected.
-	LowDiskSpaceThresholdMB int32 `json:"lowDiskSpaceThresholdMB"`
 	// How frequently to calculate and cache volume disk usage for all pods
 	VolumeStatsAggPeriod metav1.Duration `json:"volumeStatsAggPeriod"`
 	// volumePluginDir is the full path of the directory in which to search
@@ -477,9 +479,6 @@ type KubeletConfiguration struct {
 	// run docker daemon with version  < 1.9 or an Aufs storage backend.
 	// Issue #10959 has more details.
 	SerializeImagePulls *bool `json:"serializeImagePulls"`
-	// outOfDiskTransitionFrequency is duration for which the kubelet has to
-	// wait before transitioning out of out-of-disk node condition status.
-	OutOfDiskTransitionFrequency metav1.Duration `json:"outOfDiskTransitionFrequency"`
 	// nodeLabels to add when registering the node in the cluster.
 	NodeLabels map[string]string `json:"nodeLabels"`
 	// nonMasqueradeCIDR configures masquerading: traffic to IPs outside this range will use IP masquerade.

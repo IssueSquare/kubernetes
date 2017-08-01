@@ -58,10 +58,10 @@ const (
 	maxNamesPerImageInNodeStatus = 5
 )
 
-// registerWithApiServer registers the node with the cluster master. It is safe
+// registerWithAPIServer registers the node with the cluster master. It is safe
 // to call multiple times, but not concurrently (kl.registrationCompleted is
 // not locked).
-func (kl *Kubelet) registerWithApiServer() {
+func (kl *Kubelet) registerWithAPIServer() {
 	if kl.registrationCompleted {
 		return
 	}
@@ -81,7 +81,7 @@ func (kl *Kubelet) registerWithApiServer() {
 		}
 
 		glog.Infof("Attempting to register node %s", node.Name)
-		registered := kl.tryRegisterWithApiServer(node)
+		registered := kl.tryRegisterWithAPIServer(node)
 		if registered {
 			glog.Infof("Successfully registered node %s", node.Name)
 			kl.registrationCompleted = true
@@ -90,14 +90,14 @@ func (kl *Kubelet) registerWithApiServer() {
 	}
 }
 
-// tryRegisterWithApiServer makes an attempt to register the given node with
+// tryRegisterWithAPIServer makes an attempt to register the given node with
 // the API server, returning a boolean indicating whether the attempt was
 // successful.  If a node with the same name already exists, it reconciles the
 // value of the annotation for controller-managed attach-detach of attachable
 // persistent volumes for the node.  If a node of the same name exists but has
 // a different externalID value, it attempts to delete that node so that a
 // later attempt can recreate it.
-func (kl *Kubelet) tryRegisterWithApiServer(node *v1.Node) bool {
+func (kl *Kubelet) tryRegisterWithAPIServer(node *v1.Node) bool {
 	_, err := kl.kubeClient.Core().Nodes().Create(node)
 	if err == nil {
 		return true
@@ -344,7 +344,7 @@ func (kl *Kubelet) syncNodeStatus() {
 	}
 	if kl.registerNode {
 		// This will exit immediately if it doesn't need to do anything.
-		kl.registerWithApiServer()
+		kl.registerWithAPIServer()
 	}
 	if err := kl.updateNodeStatus(); err != nil {
 		glog.Errorf("Unable to update node status: %v", err)
@@ -499,11 +499,10 @@ func (kl *Kubelet) setNodeAddress(node *v1.Node) error {
 		if ipAddr == nil {
 			// We tried everything we could, but the IP address wasn't fetchable; error out
 			return fmt.Errorf("can't get ip address of node %s. error: %v", node.Name, err)
-		} else {
-			node.Status.Addresses = []v1.NodeAddress{
-				{Type: v1.NodeInternalIP, Address: ipAddr.String()},
-				{Type: v1.NodeHostName, Address: kl.GetHostname()},
-			}
+		}
+		node.Status.Addresses = []v1.NodeAddress{
+			{Type: v1.NodeInternalIP, Address: ipAddr.String()},
+			{Type: v1.NodeHostName, Address: kl.GetHostname()},
 		}
 	}
 	return nil
@@ -549,6 +548,7 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 			node.Status.Capacity[v1.ResourcePods] = *resource.NewQuantity(
 				int64(kl.maxPods), resource.DecimalSI)
 		}
+
 		if node.Status.NodeInfo.BootID != "" &&
 			node.Status.NodeInfo.BootID != info.BootID {
 			// TODO: This requires a transaction, either both node status is updated
@@ -557,25 +557,16 @@ func (kl *Kubelet) setNodeStatusMachineInfo(node *v1.Node) {
 				"Node %s has been rebooted, boot id: %s", kl.nodeName, info.BootID)
 		}
 		node.Status.NodeInfo.BootID = info.BootID
-	}
 
-	if utilfeature.DefaultFeatureGate.Enabled(features.LocalStorageCapacityIsolation) {
-		rootfs, err := kl.GetCachedRootFsInfo()
-		if err != nil {
-			node.Status.Capacity[v1.ResourceStorageScratch] = resource.MustParse("0Gi")
-		} else {
-			for rName, rCap := range cadvisor.StorageScratchCapacityFromFsInfo(rootfs) {
-				node.Status.Capacity[rName] = rCap
-			}
-		}
-
-		if hasDedicatedImageFs, _ := kl.HasDedicatedImageFs(); hasDedicatedImageFs {
-			imagesfs, err := kl.ImagesFsInfo()
-			if err != nil {
-				node.Status.Capacity[v1.ResourceStorageOverlay] = resource.MustParse("0Gi")
-			} else {
-				for rName, rCap := range cadvisor.StorageOverlayCapacityFromFsInfo(imagesfs) {
-					node.Status.Capacity[rName] = rCap
+		if utilfeature.DefaultFeatureGate.Enabled(features.LocalStorageCapacityIsolation) {
+			// TODO: all the node resources should use GetCapacity instead of deriving the
+			// capacity for every node status request
+			initialCapacity := kl.containerManager.GetCapacity()
+			if initialCapacity != nil {
+				node.Status.Capacity[v1.ResourceStorageScratch] = initialCapacity[v1.ResourceStorageScratch]
+				imageCapacity, ok := initialCapacity[v1.ResourceStorageOverlay]
+				if ok {
+					node.Status.Capacity[v1.ResourceStorageOverlay] = imageCapacity
 				}
 			}
 		}
@@ -704,7 +695,7 @@ func (kl *Kubelet) setNodeReadyCondition(node *v1.Node) {
 	}
 
 	// Append AppArmor status if it's enabled.
-	// TODO(timstclair): This is a temporary message until node feature reporting is added.
+	// TODO(tallclair): This is a temporary message until node feature reporting is added.
 	if newNodeReadyCondition.Status == v1.ConditionTrue &&
 		kl.appArmorValidator != nil && kl.appArmorValidator.ValidateHost() == nil {
 		newNodeReadyCondition.Message = fmt.Sprintf("%s. AppArmor enabled", newNodeReadyCondition.Message)
@@ -861,70 +852,6 @@ func (kl *Kubelet) setNodeDiskPressureCondition(node *v1.Node) {
 	}
 }
 
-// Set OODCondition for the node.
-func (kl *Kubelet) setNodeOODCondition(node *v1.Node) {
-	currentTime := metav1.NewTime(kl.clock.Now())
-	var nodeOODCondition *v1.NodeCondition
-
-	// Check if NodeOutOfDisk condition already exists and if it does, just pick it up for update.
-	for i := range node.Status.Conditions {
-		if node.Status.Conditions[i].Type == v1.NodeOutOfDisk {
-			nodeOODCondition = &node.Status.Conditions[i]
-		}
-	}
-
-	newOODCondition := false
-	// If the NodeOutOfDisk condition doesn't exist, create one.
-	if nodeOODCondition == nil {
-		nodeOODCondition = &v1.NodeCondition{
-			Type:   v1.NodeOutOfDisk,
-			Status: v1.ConditionUnknown,
-		}
-		// nodeOODCondition cannot be appended to node.Status.Conditions here because it gets
-		// copied to the slice. So if we append nodeOODCondition to the slice here none of the
-		// updates we make to nodeOODCondition below are reflected in the slice.
-		newOODCondition = true
-	}
-
-	// Update the heartbeat time irrespective of all the conditions.
-	nodeOODCondition.LastHeartbeatTime = currentTime
-
-	// Note: The conditions below take care of the case when a new NodeOutOfDisk condition is
-	// created and as well as the case when the condition already exists. When a new condition
-	// is created its status is set to v1.ConditionUnknown which matches either
-	// nodeOODCondition.Status != v1.ConditionTrue or
-	// nodeOODCondition.Status != v1.ConditionFalse in the conditions below depending on whether
-	// the kubelet is out of disk or not.
-	if kl.isOutOfDisk() {
-		if nodeOODCondition.Status != v1.ConditionTrue {
-			nodeOODCondition.Status = v1.ConditionTrue
-			nodeOODCondition.Reason = "KubeletOutOfDisk"
-			nodeOODCondition.Message = "out of disk space"
-			nodeOODCondition.LastTransitionTime = currentTime
-			kl.recordNodeStatusEvent(v1.EventTypeNormal, "NodeOutOfDisk")
-		}
-	} else {
-		if nodeOODCondition.Status != v1.ConditionFalse {
-			// Update the out of disk condition when the condition status is unknown even if we
-			// are within the outOfDiskTransitionFrequency duration. We do this to set the
-			// condition status correctly at kubelet startup.
-			if nodeOODCondition.Status == v1.ConditionUnknown || kl.clock.Since(nodeOODCondition.LastTransitionTime.Time) >= kl.outOfDiskTransitionFrequency {
-				nodeOODCondition.Status = v1.ConditionFalse
-				nodeOODCondition.Reason = "KubeletHasSufficientDisk"
-				nodeOODCondition.Message = "kubelet has sufficient disk space available"
-				nodeOODCondition.LastTransitionTime = currentTime
-				kl.recordNodeStatusEvent(v1.EventTypeNormal, "NodeHasSufficientDisk")
-			} else {
-				glog.Infof("Node condition status for OutOfDisk is false, but last transition time is less than %s", kl.outOfDiskTransitionFrequency)
-			}
-		}
-	}
-
-	if newOODCondition {
-		node.Status.Conditions = append(node.Status.Conditions, *nodeOODCondition)
-	}
-}
-
 // Maintains Node.Spec.Unschedulable value from previous run of tryUpdateNodeStatus()
 // TODO: why is this a package var?
 var oldNodeUnschedulable bool
@@ -975,7 +902,6 @@ func (kl *Kubelet) defaultNodeStatusFuncs() []func(*v1.Node) error {
 	return []func(*v1.Node) error{
 		kl.setNodeAddress,
 		withoutError(kl.setNodeStatusInfo),
-		withoutError(kl.setNodeOODCondition),
 		withoutError(kl.setNodeMemoryPressureCondition),
 		withoutError(kl.setNodeDiskPressureCondition),
 		withoutError(kl.setNodeReadyCondition),

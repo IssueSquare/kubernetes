@@ -33,9 +33,9 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/wait"
+	kubeclientset "k8s.io/client-go/kubernetes"
 	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/federation/pkg/federation-controller/util"
-	kubeclientset "k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 
 	"k8s.io/kubernetes/test/e2e/framework"
 	fedframework "k8s.io/kubernetes/test/e2e_federation/framework"
@@ -267,7 +267,7 @@ var _ = framework.KubeDescribe("Federated ingresses [Feature:Federation]", func(
 				// TODO check dns record in global dns server
 			})
 
-			PIt("should be able to connect to a federated ingress via its load balancer", func() {
+			It("should be able to connect to a federated ingress via its load balancer", func() {
 				By(fmt.Sprintf("Waiting for Federated Ingress on %v", jig.ing.Name))
 				// check the traffic on federation ingress
 				jig.waitForFederatedIngress()
@@ -598,7 +598,7 @@ func waitForSecretOrFail(clientset *kubeclientset.Clientset, nsName string, secr
 	var clusterSecret *v1.Secret
 	err := wait.PollImmediate(framework.Poll, timeout, func() (bool, error) {
 		var err error
-		clusterSecret, err = clientset.Core().Secrets(nsName).Get(secret.Name, metav1.GetOptions{})
+		clusterSecret, err = clientset.CoreV1().Secrets(nsName).Get(secret.Name, metav1.GetOptions{})
 		if (!present) && errors.IsNotFound(err) { // We want it gone, and it's gone.
 			By(fmt.Sprintf("Success: shard of federated secret %q in namespace %q in cluster is absent", secret.Name, nsName))
 			return true, nil // Success

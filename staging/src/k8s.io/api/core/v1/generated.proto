@@ -1958,6 +1958,7 @@ message ObjectMeta {
 }
 
 // ObjectReference contains enough information to let you inspect or modify the referred object.
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 message ObjectReference {
   // Kind of the referent.
   // More info: https://git.k8s.io/community/contributors/devel/api-conventions.md#types-kinds
@@ -2791,6 +2792,22 @@ message PodSpec {
   // +patchMergeKey=ip
   // +patchStrategy=merge
   repeated HostAlias hostAliases = 23;
+
+  // If specified, indicates the pod's priority. "SYSTEM" is a special keyword
+  // which indicates the highest priority. Any other name must be defined by
+  // creating a PriorityClass object with that name.
+  // If not specified, the pod priority will be default or zero if there is no
+  // default.
+  // +optional
+  optional string priorityClassName = 24;
+
+  // The priority value. Various system components use this field to find the
+  // priority of the pod. When Priority Admission Controller is enabled, it
+  // prevents users from setting this field. The admission controller populates
+  // this field from PriorityClassName.
+  // The higher the value, the higher the priority.
+  // +optional
+  optional int32 priority = 25;
 }
 
 // PodStatus represents information about the status of a pod. Status may trail the actual
@@ -2813,7 +2830,7 @@ message PodStatus {
   optional string message = 3;
 
   // A brief CamelCase message indicating details about why the pod is in this state.
-  // e.g. 'OutOfDisk'
+  // e.g. 'Evicted'
   // +optional
   optional string reason = 4;
 
@@ -3523,6 +3540,15 @@ message SecurityContext {
   // Default is false.
   // +optional
   optional bool readOnlyRootFilesystem = 6;
+
+  // AllowPrivilegeEscalation controls whether a process can gain more
+  // privileges than it's parent process. This bool directly controls if
+  // the no_new_privs flag will be set on the container process.
+  // AllowPrivilegeEscalation is true always when the container is:
+  // 1) run as Privileged
+  // 2) has CAP_SYS_ADMIN
+  // +optional
+  optional bool allowPrivilegeEscalation = 7;
 }
 
 // SerializedReference is a reference to serialized object.

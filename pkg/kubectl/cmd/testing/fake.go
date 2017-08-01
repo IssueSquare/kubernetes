@@ -36,7 +36,7 @@ import (
 	"k8s.io/client-go/discovery"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/rest/fake"
-	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_internalclientset"
+	fedclientset "k8s.io/kubernetes/federation/client/clientset_generated/federation_clientset"
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/testapi"
 	"k8s.io/kubernetes/pkg/api/validation"
@@ -49,6 +49,8 @@ import (
 	"k8s.io/kubernetes/pkg/printers"
 )
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type InternalType struct {
 	Kind       string
 	APIVersion string
@@ -56,6 +58,8 @@ type InternalType struct {
 	Name string
 }
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ExternalType struct {
 	Kind       string `json:"kind"`
 	APIVersion string `json:"apiVersion"`
@@ -63,6 +67,8 @@ type ExternalType struct {
 	Name string `json:"name"`
 }
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ExternalType2 struct {
 	Kind       string `json:"kind"`
 	APIVersion string `json:"apiVersion"`
@@ -99,6 +105,8 @@ func NewInternalType(kind, apiversion, name string) *InternalType {
 	return &item
 }
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type InternalNamespacedType struct {
 	Kind       string
 	APIVersion string
@@ -107,6 +115,8 @@ type InternalNamespacedType struct {
 	Namespace string
 }
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ExternalNamespacedType struct {
 	Kind       string `json:"kind"`
 	APIVersion string `json:"apiVersion"`
@@ -115,6 +125,8 @@ type ExternalNamespacedType struct {
 	Namespace string `json:"namespace"`
 }
 
+// +k8s:deepcopy-gen=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ExternalNamespacedType2 struct {
 	Kind       string `json:"kind"`
 	APIVersion string `json:"apiVersion"`
@@ -231,7 +243,7 @@ type TestFactory struct {
 
 	ClientForMappingFunc             func(mapping *meta.RESTMapping) (resource.RESTClient, error)
 	UnstructuredClientForMappingFunc func(mapping *meta.RESTMapping) (resource.RESTClient, error)
-	OpenAPISchemaFunc                func() (*openapi.Resources, error)
+	OpenAPISchemaFunc                func() (openapi.Resources, error)
 }
 
 type FakeFactory struct {
@@ -406,8 +418,8 @@ func (f *FakeFactory) SwaggerSchema(schema.GroupVersionKind) (*swagger.ApiDeclar
 	return nil, nil
 }
 
-func (f *FakeFactory) OpenAPISchema(cacheDir string) (*openapi.Resources, error) {
-	return &openapi.Resources{}, nil
+func (f *FakeFactory) OpenAPISchema(cacheDir string) (openapi.Resources, error) {
+	return nil, nil
 }
 
 func (f *FakeFactory) DefaultNamespace() (string, bool, error) {
@@ -744,11 +756,11 @@ func (f *fakeAPIFactory) SwaggerSchema(schema.GroupVersionKind) (*swagger.ApiDec
 	return nil, nil
 }
 
-func (f *fakeAPIFactory) OpenAPISchema(cacheDir string) (*openapi.Resources, error) {
+func (f *fakeAPIFactory) OpenAPISchema(cacheDir string) (openapi.Resources, error) {
 	if f.tf.OpenAPISchemaFunc != nil {
 		return f.tf.OpenAPISchemaFunc()
 	}
-	return &openapi.Resources{}, nil
+	return nil, nil
 }
 
 func NewAPIFactory() (cmdutil.Factory, *TestFactory, runtime.Codec, runtime.NegotiatedSerializer) {

@@ -19,6 +19,9 @@
 KUBE_ROOT=$(dirname "${BASH_SOURCE}")/../..
 source "${KUBE_ROOT}/cluster/gce/config-common.sh"
 
+# Specifying KUBE_GCE_API_ENDPOINT will override the default GCE Compute API endpoint (https://www.googleapis.com/compute/v1/).
+# This endpoint has to be pointing to v1 api. For example, https://www.googleapis.com/compute/staging_v1/
+GCE_API_ENDPOINT=${KUBE_GCE_API_ENDPOINT:-}
 GCLOUD=gcloud
 ZONE=${KUBE_GCE_ZONE:-us-central1-b}
 REGION=${ZONE%-*}
@@ -28,7 +31,8 @@ NODE_SIZE=${NODE_SIZE:-n1-standard-2}
 NUM_NODES=${NUM_NODES:-3}
 MASTER_SIZE=${MASTER_SIZE:-n1-standard-$(get-master-size)}
 MASTER_DISK_TYPE=pd-ssd
-MASTER_DISK_SIZE=${MASTER_DISK_SIZE:-20GB}
+MASTER_DISK_SIZE=${MASTER_DISK_SIZE:-$(get-master-disk-size)}
+MASTER_ROOT_DISK_SIZE=${MASTER_ROOT_DISK_SIZE:-$(get-master-root-disk-size)}
 NODE_DISK_TYPE=${NODE_DISK_TYPE:-pd-standard}
 NODE_DISK_SIZE=${NODE_DISK_SIZE:-100GB}
 NODE_LOCAL_SSDS=${NODE_LOCAL_SSDS:-0}
@@ -42,7 +46,7 @@ KUBE_DELETE_NODES=${KUBE_DELETE_NODES:-true}
 KUBE_DELETE_NETWORK=${KUBE_DELETE_NETWORK:-false}
 
 MASTER_OS_DISTRIBUTION=${KUBE_MASTER_OS_DISTRIBUTION:-${KUBE_OS_DISTRIBUTION:-gci}}
-NODE_OS_DISTRIBUTION=${KUBE_NODE_OS_DISTRIBUTION:-${KUBE_OS_DISTRIBUTION:-debian}}
+NODE_OS_DISTRIBUTION=${KUBE_NODE_OS_DISTRIBUTION:-${KUBE_OS_DISTRIBUTION:-gci}}
 if [[ "${MASTER_OS_DISTRIBUTION}" == "coreos" ]]; then
     MASTER_OS_DISTRIBUTION="container-linux"
 fi
@@ -63,15 +67,16 @@ if [[ "${NODE_OS_DISTRIBUTION}" == "debian" ]]; then
     NODE_ACCELERATORS=""
 fi
 
-# By default a cluster will be started with the master on GCI and nodes on
-# containervm. If you are updating the containervm version, update this
-# variable. Also please update corresponding image for node e2e at:
+# By default a cluster will be started with the master and nodes
+# on Container-optimized OS (cos, previously known as gci). If
+# you are updating the os image versions, update this variable.
+# Also please update corresponding image for node e2e at:
 # https://github.com/kubernetes/kubernetes/blob/master/test/e2e_node/jenkins/image-config.yaml
-CVM_VERSION=${CVM_VERSION:-container-vm-v20170214}
+CVM_VERSION=${CVM_VERSION:-container-vm-v20170627}
 GCI_VERSION=${KUBE_GCI_VERSION:-cos-stable-59-9460-64-0}
 MASTER_IMAGE=${KUBE_GCE_MASTER_IMAGE:-}
 MASTER_IMAGE_PROJECT=${KUBE_GCE_MASTER_PROJECT:-cos-cloud}
-NODE_IMAGE=${KUBE_GCE_NODE_IMAGE:-${CVM_VERSION}}
+NODE_IMAGE=${KUBE_GCE_NODE_IMAGE:-${GCI_VERSION}}
 NODE_IMAGE_PROJECT=${KUBE_GCE_NODE_PROJECT:-cos-cloud}
 CONTAINER_RUNTIME=${KUBE_CONTAINER_RUNTIME:-docker}
 RKT_VERSION=${KUBE_RKT_VERSION:-1.23.0}
@@ -118,6 +123,10 @@ ENABLE_L7_LOADBALANCING="${KUBE_ENABLE_L7_LOADBALANCING:-glbc}"
 #   standalone     - Heapster only. Metrics available via Heapster REST API.
 ENABLE_CLUSTER_MONITORING="${KUBE_ENABLE_CLUSTER_MONITORING:-influxdb}"
 
+# One special node out of NUM_NODES would be created of this type if specified.
+# Useful for scheduling heapster in large clusters with nodes of small size.
+HEAPSTER_MACHINE_TYPE="${HEAPSTER_MACHINE_TYPE:-}"
+
 # Historically fluentd was a manifest pod and then was migrated to DaemonSet.
 # To avoid situation during cluster upgrade when there are two instances
 # of fluentd running on a node, kubelet need to mark node on which
@@ -125,7 +134,7 @@ ENABLE_CLUSTER_MONITORING="${KUBE_ENABLE_CLUSTER_MONITORING:-influxdb}"
 # TODO(piosz): remove this in 1.8
 NODE_LABELS="${KUBE_NODE_LABELS:-beta.kubernetes.io/fluentd-ds-ready=true}"
 
-# To avoid running Calico on a node that is not configured appropriately, 
+# To avoid running Calico on a node that is not configured appropriately,
 # label each Node so that the DaemonSet can run the Pods only on ready Nodes.
 if [[ ${NETWORK_POLICY_PROVIDER:-} == "calico" ]]; then
 	NODE_LABELS="${NODE_LABELS},projectcalico.org/ds-ready=true"
@@ -218,7 +227,7 @@ if [ ${ENABLE_IP_ALIASES} = true ]; then
   SERVICE_CLUSTER_IP_SUBNETWORK=${KUBE_GCE_SERVICE_CLUSTER_IP_SUBNETWORK:-${INSTANCE_PREFIX}-subnet-services}
   # NODE_IP_RANGE is used when ENABLE_IP_ALIASES=true. It is the primary range in
   # the subnet and is the range used for node instance IPs.
-  NODE_IP_RANGE="${NODE_IP_RANGE:-10.40.0.0/22}"
+  NODE_IP_RANGE="$(get-node-ip-range)"
   # Add to the provider custom variables.
   PROVIDER_VARS="${PROVIDER_VARS} ENABLE_IP_ALIASES"
 fi
@@ -245,7 +254,7 @@ NETWORK_POLICY_PROVIDER="${NETWORK_POLICY_PROVIDER:-none}" # calico
 # How should the kubelet configure hairpin mode?
 HAIRPIN_MODE="${HAIRPIN_MODE:-promiscuous-bridge}" # promiscuous-bridge, hairpin-veth, none
 # Optional: if set to true, kube-up will configure the cluster to run e2e tests.
-E2E_STORAGE_TEST_ENVIRONMENT=${KUBE_E2E_STORAGE_TEST_ENVIRONMENT:-false}
+E2E_STORAGE_TEST_ENVIRONMENT="${KUBE_E2E_STORAGE_TEST_ENVIRONMENT:-false}"
 
 # Evict pods whenever compute resource availability on the nodes gets below a threshold.
 EVICTION_HARD="${EVICTION_HARD:-memory.available<250Mi,nodefs.available<10%,nodefs.inodesFree<5%}"
@@ -266,4 +275,6 @@ SOFTLOCKUP_PANIC="${SOFTLOCKUP_PANIC:-false}" # true, false
 # Indicates if the values (i.e. KUBE_USER and KUBE_PASSWORD for basic
 # authentication) in metadata should be treated as canonical, and therefore disk
 # copies ought to be recreated/clobbered.
-METADATA_CLOBBERS_CONFIG=${METADATA_CLOBBERS_CONFIG:-false}
+METADATA_CLOBBERS_CONFIG="${METADATA_CLOBBERS_CONFIG:-false}"
+
+ENABLE_BIG_CLUSTER_SUBNETS="${ENABLE_BIG_CLUSTER_SUBNETS:-false}"

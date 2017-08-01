@@ -32,17 +32,16 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"k8s.io/apimachinery/pkg/watch"
 
-	clientv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
-	"k8s.io/kubernetes/pkg/api/v1/ref"
+	ref "k8s.io/client-go/tools/reference"
 
 	"k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes/fake"
+	v1core "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset/fake"
-	v1core "k8s.io/kubernetes/pkg/client/clientset_generated/clientset/typed/core/v1"
 	utilnode "k8s.io/kubernetes/pkg/util/node"
 
-	"github.com/evanphx/json-patch"
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/golang/glog"
 )
 
@@ -342,8 +341,8 @@ func (m *FakeNodeHandler) Patch(name string, pt types.PatchType, data []byte, su
 // FakeRecorder is used as a fake during testing.
 type FakeRecorder struct {
 	sync.Mutex
-	source clientv1.EventSource
-	Events []*clientv1.Event
+	source v1.EventSource
+	Events []*v1.Event
 	clock  clock.Clock
 }
 
@@ -376,14 +375,14 @@ func (f *FakeRecorder) generateEvent(obj runtime.Object, timestamp metav1.Time, 
 	}
 }
 
-func (f *FakeRecorder) makeEvent(ref *clientv1.ObjectReference, eventtype, reason, message string) *clientv1.Event {
+func (f *FakeRecorder) makeEvent(ref *v1.ObjectReference, eventtype, reason, message string) *v1.Event {
 	t := metav1.Time{Time: f.clock.Now()}
 	namespace := ref.Namespace
 	if namespace == "" {
 		namespace = metav1.NamespaceDefault
 	}
 
-	clientref := clientv1.ObjectReference{
+	clientref := v1.ObjectReference{
 		Kind:            ref.Kind,
 		Namespace:       ref.Namespace,
 		Name:            ref.Name,
@@ -393,7 +392,7 @@ func (f *FakeRecorder) makeEvent(ref *clientv1.ObjectReference, eventtype, reaso
 		FieldPath:       ref.FieldPath,
 	}
 
-	return &clientv1.Event{
+	return &v1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      fmt.Sprintf("%v.%x", ref.Name, t.UnixNano()),
 			Namespace: namespace,
@@ -411,8 +410,8 @@ func (f *FakeRecorder) makeEvent(ref *clientv1.ObjectReference, eventtype, reaso
 // NewFakeRecorder returns a pointer to a newly constructed FakeRecorder.
 func NewFakeRecorder() *FakeRecorder {
 	return &FakeRecorder{
-		source: clientv1.EventSource{Component: "nodeControllerTest"},
-		Events: []*clientv1.Event{},
+		source: v1.EventSource{Component: "nodeControllerTest"},
+		Events: []*v1.Event{},
 		clock:  clock.NewFakeClock(time.Now()),
 	}
 }

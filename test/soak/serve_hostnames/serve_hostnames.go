@@ -34,10 +34,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	e2e "k8s.io/kubernetes/test/e2e/framework"
 
 	"github.com/golang/glog"
@@ -120,7 +120,7 @@ func main() {
 	}
 	ns := got.Name
 	defer func(ns string) {
-		if err := client.Core().Namespaces().Delete(ns, nil); err != nil {
+		if err := client.CoreV1().Namespaces().Delete(ns, nil); err != nil {
 			glog.Warningf("Failed to delete namespace ns: %e", ns, err)
 		} else {
 			// wait until the namespace disappears

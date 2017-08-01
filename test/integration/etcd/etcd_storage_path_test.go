@@ -42,6 +42,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	"k8s.io/apiserver/pkg/storage/storagebackend"
+	clientset "k8s.io/client-go/kubernetes"
 	kclient "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -50,7 +51,6 @@ import (
 	"k8s.io/kubernetes/cmd/kube-apiserver/app"
 	"k8s.io/kubernetes/cmd/kube-apiserver/app/options"
 	kapi "k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/clientset"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/util"
 	"k8s.io/kubernetes/test/integration/framework"
 
@@ -147,6 +147,29 @@ var etcdStorageData = map[schema.GroupVersionResource]struct {
 	},
 	// --
 
+	// k8s.io/kubernetes/pkg/apis/apps/v1beta2
+	gvr("apps", "v1beta2", "statefulsets"): {
+		stub:             `{"metadata": {"name": "ss2"}, "spec": {"template": {"metadata": {"labels": {"a": "b"}}}}}`,
+		expectedEtcdPath: "/registry/statefulsets/etcdstoragepathtestnamespace/ss2",
+		expectedGVK:      gvkP("apps", "v1beta1", "StatefulSet"),
+	},
+	gvr("apps", "v1beta2", "deployments"): {
+		stub:             `{"metadata": {"name": "deployment3"}, "spec": {"selector": {"matchLabels": {"f": "z"}}, "template": {"metadata": {"labels": {"f": "z"}}, "spec": {"containers": [{"image": "fedora:latest", "name": "container6"}]}}}}`,
+		expectedEtcdPath: "/registry/deployments/etcdstoragepathtestnamespace/deployment3",
+		expectedGVK:      gvkP("extensions", "v1beta1", "Deployment"),
+	},
+	gvr("apps", "v1beta2", "daemonsets"): {
+		stub:             `{"metadata": {"name": "ds5"}, "spec": {"selector": {"matchLabels": {"a": "b"}}, "template": {"metadata": {"labels": {"a": "b"}}, "spec": {"containers": [{"image": "fedora:latest", "name": "container6"}]}}}}`,
+		expectedEtcdPath: "/registry/daemonsets/etcdstoragepathtestnamespace/ds5",
+		expectedGVK:      gvkP("extensions", "v1beta1", "DaemonSet"),
+	},
+	gvr("apps", "v1beta2", "replicasets"): {
+		stub:             `{"metadata": {"name": "rs2"}, "spec": {"selector": {"matchLabels": {"g": "h"}}, "template": {"metadata": {"labels": {"g": "h"}}, "spec": {"containers": [{"image": "fedora:latest", "name": "container4"}]}}}}`,
+		expectedEtcdPath: "/registry/replicasets/etcdstoragepathtestnamespace/rs2",
+		expectedGVK:      gvkP("extensions", "v1beta1", "ReplicaSet"),
+	},
+	// --
+
 	// k8s.io/kubernetes/pkg/apis/autoscaling/v1
 	gvr("autoscaling", "v1", "horizontalpodautoscalers"): {
 		stub:             `{"metadata": {"name": "hpa2"}, "spec": {"maxReplicas": 3, "scaleTargetRef": {"kind": "something", "name": "cross"}}}`,
@@ -196,10 +219,6 @@ var etcdStorageData = map[schema.GroupVersionResource]struct {
 	gvr("extensions", "v1beta1", "podsecuritypolicies"): {
 		stub:             `{"metadata": {"name": "psp1"}, "spec": {"fsGroup": {"rule": "RunAsAny"}, "privileged": true, "runAsUser": {"rule": "RunAsAny"}, "seLinux": {"rule": "MustRunAs"}, "supplementalGroups": {"rule": "RunAsAny"}}}`,
 		expectedEtcdPath: "/registry/podsecuritypolicy/psp1",
-	},
-	gvr("extensions", "v1beta1", "thirdpartyresources"): {
-		stub:             `{"description": "third party", "metadata": {"name": "kind.domain.tld"}, "versions": [{"name": "v3"}]}`,
-		expectedEtcdPath: "/registry/thirdpartyresources/kind.domain.tld",
 	},
 	gvr("extensions", "v1beta1", "ingresses"): {
 		stub:             `{"metadata": {"name": "ingress1"}, "spec": {"backend": {"serviceName": "service", "servicePort": 5000}}}`,
@@ -307,6 +326,14 @@ var etcdStorageData = map[schema.GroupVersionResource]struct {
 		stub:             `{"metadata":{"name":"hook1","creationTimestamp":null},"externalAdmissionHooks":[{"name":"externaladmissionhook.k8s.io","clientConfig":{"service":{"namespace":"","name":""},"caBundle":null},"rules":[{"operations":["CREATE"],"apiGroups":["group"],"apiVersions":["version"],"resources":["resource"]}],"failurePolicy":"Ignore"}]}`,
 		expectedEtcdPath: "/registry/externaladmissionhookconfigurations/hook1",
 	},
+	// --
+
+	// k8s.io/kubernetes/pkg/apis/scheduling/v1alpha1
+	gvr("scheduling.k8s.io", "v1alpha1", "priorityclasses"): {
+		stub:             `{"metadata":{"name":"pc1"},"Value":1000}`,
+		expectedEtcdPath: "/registry/priorityclasses/pc1",
+	},
+	// --
 }
 
 // Be very careful when whitelisting an object as ephemeral.
@@ -357,6 +384,11 @@ var ephemeralWhiteList = createEphemeralWhiteList(
 	gvr("apps", "v1beta1", "deploymentrollbacks"), // used to rollback deployment, not stored in etcd
 	// --
 
+	// k8s.io/kubernetes/pkg/apis/apps/v1beta2
+	gvr("apps", "v1beta2", "scales"),              // not stored in etcd, part of kapiv1.ReplicationController
+	gvr("apps", "v1beta2", "deploymentrollbacks"), // used to rollback deployment, not stored in etcd
+	// --
+
 	// k8s.io/kubernetes/pkg/apis/batch/v2alpha1
 	gvr("batch", "v2alpha1", "jobtemplates"), // not stored in etcd
 	// --
@@ -372,6 +404,7 @@ var ephemeralWhiteList = createEphemeralWhiteList(
 	gvr("extensions", "v1beta1", "replicationcontrollerdummies"), // not stored in etcd
 	gvr("extensions", "v1beta1", "scales"),                       // not stored in etcd, part of kapiv1.ReplicationController
 	gvr("extensions", "v1beta1", "thirdpartyresourcedatas"),      // we cannot create this
+	gvr("extensions", "v1beta1", "thirdpartyresources"),          // these have been removed from the API server, but kept for the client
 	// --
 
 	// k8s.io/kubernetes/pkg/apis/imagepolicy/v1alpha1
@@ -591,7 +624,7 @@ func startRealMasterOrDie(t *testing.T, certDir string) (*allClient, clientv3.KV
 			kubeAPIServerOptions := options.NewServerRunOptions()
 			kubeAPIServerOptions.SecureServing.BindAddress = net.ParseIP("127.0.0.1")
 			kubeAPIServerOptions.SecureServing.ServerCert.CertDirectory = certDir
-			kubeAPIServerOptions.Etcd.StorageConfig.ServerList = []string{framework.GetEtcdURLFromEnv()}
+			kubeAPIServerOptions.Etcd.StorageConfig.ServerList = []string{framework.GetEtcdURL()}
 			kubeAPIServerOptions.Etcd.DefaultStorageMediaType = runtime.ContentTypeJSON // TODO use protobuf?
 			kubeAPIServerOptions.ServiceClusterIPRange = *defaultServiceClusterIPRange
 			kubeAPIServerOptions.Authorization.Mode = "RBAC"
@@ -615,7 +648,7 @@ func startRealMasterOrDie(t *testing.T, certDir string) (*allClient, clientv3.KV
 
 			kubeAPIServerConfig.APIResourceConfigSource = &allResourceSource{} // force enable all resources
 
-			kubeAPIServer, err := app.CreateKubeAPIServer(kubeAPIServerConfig, genericapiserver.EmptyDelegate, sharedInformers, nil)
+			kubeAPIServer, err := app.CreateKubeAPIServer(kubeAPIServerConfig, genericapiserver.EmptyDelegate, sharedInformers)
 			if err != nil {
 				t.Fatal(err)
 			}
